@@ -1,6 +1,7 @@
 function Initialize(obj,node)
 
-    obj.L0_vec=zeros(size(obj.A_vec));
+    obj.L0_vec      = zeros(size(obj.A_vec));
+    obj.prestrain_vec = zeros(size(obj.A_vec));
     % The primary task for initializing code is to calculate the 
     % undeformed length of each bar element. This is done with the 
     % following simple for loop.

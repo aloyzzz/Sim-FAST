@@ -23,7 +23,14 @@ classdef Solver_CAA_Dynamics  < handle
         % Rayleigh damping
         alpha=0.0001
         beta=0.0001
-      
+
+        % Actuated bar rest-length history (optional).
+        % Struct with fields:
+        %   bar_ids  — (nAct×1) indices into bar.L0_vec to actuate
+        %   L0_his   — (steps×nAct) prescribed rest length at each step
+        % Leave empty ([]) to disable actuation.
+        actuation = []
+
     end
     methods
         % Solve the deformation history

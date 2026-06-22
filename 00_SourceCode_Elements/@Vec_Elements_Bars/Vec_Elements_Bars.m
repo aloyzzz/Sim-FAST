@@ -25,6 +25,12 @@ classdef Vec_Elements_Bars < handle
         % Current Strain Energy of the bar, stored as a vector (Nb*1)
         energy_current_vec
 
+        % Eigenstrain (prestrain) offset per bar (Nb*1), default zeros.
+        % Sx = E*(Ex - prestrain_vec). Negative value = bar wants to shorten
+        % (contraction actuator). Updated each timestep by the solver for
+        % actuated bars; zero for passive bars.
+        prestrain_vec
+
     end
 
     methods

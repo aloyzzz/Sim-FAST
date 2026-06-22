@@ -47,5 +47,8 @@ classdef Plot_Truss < handle
         % Plot the force of the bar
         Plot_Bar_Force(obj,F)
 
+        % Save deformation animation as MP4
+        Plot_Deformed_His_MP4(obj,Uhis,mp4FileName)
+
     end
 end

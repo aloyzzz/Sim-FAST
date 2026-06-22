@@ -51,7 +51,14 @@ function Uhis=Solve(obj)
     % Implement the explicit solver
     for i=1:step
 
-        assembly.rot_spr_4N.theta_stress_free_vec=rotSprTarget(i,:)';
+        if ~isempty(rotSprTarget)
+            assembly.rot_spr_4N.theta_stress_free_vec=rotSprTarget(i,:)';
+        end
+        if ~isempty(obj.actuation)
+            L0_i   = obj.actuation.L0_his(i,:)';
+            L0_nat = obj.actuation.L0_nat;
+            assembly.bar.prestrain_vec(obj.actuation.bar_ids) = (L0_i - L0_nat) ./ L0_nat;
+        end
         [T,K]=assembly.Solve_FK(squeeze(Uhis(i,:,:)));
 
         [K,T]=Mod_K_For_Supp(K,supp,T);
