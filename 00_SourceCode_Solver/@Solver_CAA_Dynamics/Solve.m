@@ -1,4 +1,4 @@
-function Uhis=Solve(obj)
+function [Uhis,ctrlLog]=Solve(obj)
 
     % Input setup from loading controller
     assembly=obj.assembly;
@@ -47,7 +47,36 @@ function Uhis=Solve(obj)
    
     % Find the mass matrix of the system
     MassMat=assembly.node.FindMassMat();
-    
+
+    % --- Closed-loop PID controller set-up ---------------------------------
+    % Pre-allocate the controller state and logs. The controller, when
+    % enabled, computes the eigen-(pre)strain command for the actuated bars
+    % at every step so the actuators counteract external disturbances.
+    useCtrl = ~isempty(obj.control);
+    ctrlLog = [];
+    if useCtrl
+        c          = obj.control;
+        ctrlBars   = c.bar_ids(:);
+        nAct       = numel(ctrlBars);
+
+        % Gains and limits (scalars are broadcast to every actuated bar).
+        Kp   = local_col(getfield_default(c,'Kp',0),  nAct);
+        Ki   = local_col(getfield_default(c,'Ki',0),  nAct);
+        Kd   = local_col(getfield_default(c,'Kd',0),  nAct);
+        eTgt = local_col(getfield_default(c,'target_strain',0), nAct);
+        pLim = local_col(getfield_default(c,'prestrain_limit',Inf), nAct);
+        tOn  = getfield_default(c,'t_on',0);
+
+        Iacc   = zeros(nAct,1);   % integral accumulator
+        ePrev  = zeros(nAct,1);   % previous error (for derivative term)
+        ctrlInit = false;
+
+        ctrlLog.bar_ids       = ctrlBars;
+        ctrlLog.strain_his    = zeros(step,nAct);  % measured bar strain
+        ctrlLog.error_his     = zeros(step,nAct);  % control error
+        ctrlLog.prestrain_his = zeros(step,nAct);  % commanded prestrain
+    end
+
     % Implement the explicit solver
     for i=1:step
 
@@ -59,6 +88,47 @@ function Uhis=Solve(obj)
             L0_nat = obj.actuation.L0_nat;
             assembly.bar.prestrain_vec(obj.actuation.bar_ids) = (L0_i - L0_nat) ./ L0_nat;
         end
+
+        % --- Closed-loop PID actuation -------------------------------------
+        if useCtrl
+            Ui = squeeze(Uhis(i,:,:));
+            % Measure current engineering strain of each actuated bar.
+            ExAll  = assembly.bar.Solve_Strain(assembly.node, Ui);
+            measEx = ExAll(ctrlBars);
+
+            if TimeVec(i) >= tOn
+                e = eTgt - measEx;                 % control error
+                if ~ctrlInit
+                    ePrev = e;                     % avoid derivative kick
+                    ctrlInit = true;
+                end
+                deriv = (e - ePrev) / dt;
+
+                % Trial command with the current integral state.
+                cmd = Kp.*e + Ki.*Iacc + Kd.*deriv;
+
+                % Conditional integration (anti-windup): only accumulate when
+                % the command is not pushing further into saturation.
+                notSat = (abs(cmd) < pLim) | (sign(e) ~= sign(cmd));
+                Iacc(notSat) = Iacc(notSat) + e(notSat)*dt;
+
+                % Recompute and saturate the command to the stroke limit.
+                cmd = Kp.*e + Ki.*Iacc + Kd.*deriv;
+                cmd = max(-pLim, min(pLim, cmd));
+
+                ePrev = e;
+            else
+                e   = eTgt - measEx;
+                cmd = zeros(nAct,1);
+            end
+
+            assembly.bar.prestrain_vec(ctrlBars) = cmd;
+
+            ctrlLog.strain_his(i,:)    = measEx';
+            ctrlLog.error_his(i,:)     = e';
+            ctrlLog.prestrain_his(i,:) = cmd';
+        end
+
         [T,K]=assembly.Solve_FK(squeeze(Uhis(i,:,:)));
 
         [K,T]=Mod_K_For_Supp(K,supp,T);
@@ -104,4 +174,23 @@ function Uhis=Solve(obj)
 
     Uhis=Uhis(1:step,:,:);
 
+end
+
+% --- Local helpers ---------------------------------------------------------
+function val = getfield_default(s, name, default)
+    % Return s.(name) if it exists and is non-empty, otherwise default.
+    if isfield(s, name) && ~isempty(s.(name))
+        val = s.(name);
+    else
+        val = default;
+    end
+end
+
+function col = local_col(val, n)
+    % Expand a scalar to an n×1 column, or pass through an n×1 vector.
+    if isscalar(val)
+        col = val * ones(n,1);
+    else
+        col = val(:);
+    end
 end
