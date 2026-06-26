@@ -169,7 +169,27 @@ engage the §1 joint PID and watch the active joints reject the same 3-D
 disturbance — i.e. the controller from Part 1 works unchanged in 3-D, since it
 acts on bar strain which is already a 3-D quantity.
 
-### 2.3 If you ever *do* want true hinge behaviour (optional aside)
+### 2.3 Interactive 3-D viewer
+
+`Hex_Ring_3D_Joints.m` writes an MP4 with a fixed camera. To inspect the
+joint deformation **from any angle**, use the interactive viewer instead:
+
+* `Build_Hex_Ring_Model.m` — reusable builder for the 1+6 ring (geometry,
+  bar/joint connectivity, initialized assembly, convenient node sets).
+* `Interactive_Deformation_Viewer.m` — opens a 3-D figure where you **drag to
+  orbit, scroll to zoom, pan** with the toolbar, **scrub time** with a slider,
+  **Play/Pause** the animation, **Reset View**, and set a **displacement
+  magnification** to exaggerate small joint motions. Joint bars are coloured
+  live by axial force (blue = compression, red = tension).
+* `Hex_Ring_Interactive_Demo.m` — one-click launcher: builds the model,
+  applies the out-of-plane impulse, runs the solver (optionally with the joint
+  PID), and opens the viewer.
+
+The viewer takes a plain `viz` struct (`node_coords`, `hex_nodes`, `Uhis`,
+optional `bar_conn`/`joint_ids`/`jointForce`), so it can visualise the output
+of any of the hex-ring scripts, not just the 3-D demo.
+
+### 2.4 If you ever *do* want true hinge behaviour (optional aside)
 
 Should the goal later shift to panels that genuinely **fold** about their
 edges, Sim-FAST already has the right primitive — the **4-node rotational
