@@ -4,9 +4,9 @@ This note documents two things requested for the hex-ring simulations:
 
 1. **A PID control scheme** that drives the joint actuators to *counteract
    external forces* and hold the ring near its reference shape.
-2. **An exploration** of whether a different Sim-FAST element/assembly is a
-   better fit when the goal is to model a solar-panel array of hexagons
-   connected by *joints* (hinges).
+2. **A 3-D joint study** that models the hexagon-to-hexagon connections as the
+   compliant *bar joints* they are (not idealized hinges) and shows the effect
+   of an external force on those joints in full 3-D.
 
 ---
 
@@ -115,81 +115,68 @@ and produces:
 
 ---
 
-## 2. Is a bar mesh the best model for a *hinged* solar-panel array?
+## 2. Modeling the joints in 3-D (NOT hinged) and the effect of a force on them
 
-The hex-ring scripts model each panel as a **stiff triangulated bar mesh** and
-each joint as a **soft bar**. That is a fine, fast way to get an in-plane
-*compliant-membrane* response, but it has real limitations for a hinged
-solar array:
+The array is **not** treated as a hinged/folding mechanism. The panels stay
+panels and the connections between them are modelled as the **compliant bar
+joints** they already are in the hex sims — we simply want to (a) let the
+structure move in full **3-D** and (b) see what an external force does to
+those joints (how far each joint stretches, how much axial force it carries).
 
-* A bar only carries **axial** force. A physical panel-to-panel hinge is a
-  **rotational** connection — it should be soft in *bending/folding* about the
-  hinge line but stiff in-plane. A single soft bar cannot represent that
-  anisotropy; it is soft along one direction only and says nothing about
-  out-of-plane folding.
-* The whole hex-ring setup is constrained to a plane (`Y` fixed for all
-  nodes). The defining motion of a deployable solar array — panels **folding
-  out of plane** about their hinges — cannot happen in that model at all.
-* "Stiffness" of a bar joint is an axial modulus, not a hinge stiffness or a
-  fold angle, so it does not map cleanly onto a real hinge spec or onto a
-  *deployment angle* you would want to actuate.
+### 2.1 What had to change to make it 3-D
 
-### 2.1 The better-fit Sim-FAST primitives
+The original hex scripts are *planar by constraint*, not by physics — every
+node has its out-of-plane DOF removed:
 
-Sim-FAST already ships the elements that model hinges directly:
+```matlab
+supp(:,3) = 1;     % Y fixed for ALL nodes  (forces the ring to stay flat)
+```
 
-| Need | Element | File |
-|------|---------|------|
-| Panel as a stiff, true 2-D plate | CST triangle | `@Vec_Elements_CST`, `@CD_Elements_CST` |
-| Hinge / fold line between panels | 4-node rotational spring | `@Vec_Elements_RotSprings_4N` |
-| Hinge with a *commanded* fold angle | 4N rot-spring `theta_stress_free_vec` | same |
-| One-sided (thick) hinge, contact-aware | directional 4N rot-spring | `@Vec_Elements_RotSprings_4N_Directional` |
+The element library is already fully 3-D (bars use 3-D Green strain;
+`Solve_Strain`/`FindMassMat` are 3-D; supports are per-axis). So the only
+thing standing between the existing model and a 3-D study is that one line.
+Removing the global `Y` constraint — and clamping just one panel fully
+(X, Y, Z) to ground the structure — lets the joints respond out of plane
+under a 3-D load, with **no solver or element changes required**.
 
-A **4-node rotational spring** is precisely a hinge: its energy depends on the
-dihedral fold angle `theta` between the two panels sharing an edge, with
-stiffness `rot_spr_K_vec` and rest angle `theta_stress_free_vec`. That gives
-you exactly the *soft-in-folding / stiff-in-plane* behaviour a panel hinge
-needs, and it lets the array fold in 3-D.
+The bar joints carry the out-of-plane load through **geometric (tension)
+stiffening**: a flat connector loaded transversely develops axial tension as
+it deflects, and that tension provides the restoring force — the natural,
+physically-correct behaviour of a thin connector (think guy-wire / membrane),
+not an artificial rotational hinge. The constant-average-acceleration solver
+is unconditionally stable and the lumped-mass term regularises the otherwise
+slack initial out-of-plane direction, so the dynamic 3-D run is well posed.
 
-Crucially, **actuation maps onto the natural variable**: the dynamic solver
-already actuates `theta_stress_free_vec` through its `rotSprTargetAngle`
-input (`Solver_CAA_Dynamics/Solve.m`). So "drive the hinge to a deployment
-angle" is native, and the *same PID idea above can command the rest angle*
-instead of a bar prestrain — a hinge-angle PID for deployment hold and
-vibration suppression.
+### 2.2 Demo: `Hex_Ring_3D_Joints.m`
 
-This is not hypothetical in this repo:
+Built on the 1-center + 6-ring geometry (12 explicit bar joints — the truest
+"joint" representation, since panels do **not** share nodes):
 
-* **`02_Other_Simulation_Examples/MicroMirror.m`** is the canonical analog of
-  a panel on a torsional hinge: stiff plates + actuated rotational springs +
-  the *same* `Solver_CAA_Dynamics`. It even folds initial angles and drives
-  the hinges dynamically.
-* **`@Assembly_MEMS` / `@Assembly_Origami`** show the assembly pattern: their
-  `Solve_FK` simply **sums** bar and rotational-spring contributions
-  (`T = Tbar + Trs; K = Kbar + Krs`). The hex `Assembly_Hex_Origami` only
-  sums bars — adding a `rot_spr_4N` member and the extra two lines is all that
-  is required to upgrade it.
+* leaves the out-of-plane DOF free (3-D),
+* clamps ring panel 4 only,
+* applies an **out-of-plane (+Y) impulse** to ring panel 1 for `t_force`, then
+  releases it,
+* produces a **3-D animation** (`hex_ring_3d_joints.mp4`) with the panels as
+  3-D patches and **joint bars coloured by axial force** (blue = compression,
+  red = tension), and
+* reports, per joint and over time, the **elongation ΔL** and **axial force**
+  (computed with the same `Solve_Strain` the solver uses, so the diagnostics
+  are model-consistent), plus the loaded panel's out-of-plane deflection.
 
-### 2.2 Recommendation
+Switch `joint_type` between `'triangle'` (one bar per gap) and `'Y'` (hub +
+two prong bars) to compare joint topologies. Set `use_control = true` to also
+engage the §1 joint PID and watch the active joints reject the same 3-D
+disturbance — i.e. the controller from Part 1 works unchanged in 3-D, since it
+acts on bar strain which is already a 3-D quantity.
 
-* **Keep the bar-mesh hex-ring model** when the question is *in-plane*
-  compliant-joint mechanics, planar vibration, or quick actuator-strain
-  studies. It is the lightest model and the PID controller added here works on
-  it directly.
-* **Switch to CST panels + 4-node rotational-spring hinges** (the
-  MicroMirror / Origami assembly pattern) when the panels should be genuine
-  plates and the joints are real **hinges** that fold out of plane — i.e. the
-  actual deployable-solar-array problem. Then:
-  - model each panel with a few CST triangles (stiff in-plane),
-  - put a 4N rotational spring on every panel-to-panel edge (soft fold,
-    realistic hinge stiffness),
-  - actuate / regulate the hinge via `theta_stress_free_vec` (open loop with
-    `rotSprTargetAngle`, or closed loop with the PID approach of §1 applied to
-    the rest angle), and
-  - drop the global `Y`-fixed constraint so deployment and out-of-plane modes
-    appear.
+### 2.3 If you ever *do* want true hinge behaviour (optional aside)
 
-In short: the PID hook is general (it can command either bar prestrain or
-hinge rest angle), and for a *hinged* solar-panel array the rotational-spring
-hinge model is the better-suited Sim-FAST option, with `MicroMirror.m` and the
-`Assembly_Origami`/`Assembly_MEMS` pattern as ready templates.
+Should the goal later shift to panels that genuinely **fold** about their
+edges, Sim-FAST already has the right primitive — the **4-node rotational
+spring** (`@Vec_Elements_RotSprings_4N`), whose energy depends on the dihedral
+fold angle and whose rest angle `theta_stress_free_vec` is directly actuated
+by the dynamic solver's `rotSprTargetAngle` input. The
+`MicroMirror.m` example and the `Assembly_Origami`/`Assembly_MEMS` pattern
+(whose `Solve_FK` simply sums `Tbar + Trs`) are ready templates. That is a
+*different* model from the bar-joint study above and is noted only for
+completeness.
