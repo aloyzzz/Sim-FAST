@@ -62,6 +62,30 @@ classdef Solver_CAA_Dynamics  < handle
         % Leave empty ([]) to disable closed-loop control.
         control = []
 
+        % Active rotational-joint damping on the 3-node rotational springs
+        % (optional). Each joint spring gets a damping moment  M = -C*dθ/dt
+        % that opposes the rate of change of its hinge angle, injected by
+        % offsetting the spring's stress-free angle every step:
+        %     θ_stress_free = θ0 + (C/K)*dθ/dt   ⇒   M = K(θ-θ0) - C*dθ/dt
+        % The angular rate dθ/dt is computed analytically from the node
+        % velocity state (what a rate gyro across the hinge would sense),
+        % not by differencing the angle. Because the moment is collocated
+        % with — and directly opposes — the joint rotation, it is passive
+        % (dissipative) and targets the ring's panel-swing mode head-on,
+        % which the axial bar actuators cannot reach.
+        % Struct fields:
+        %   C     — rotational damping coeff (N*m*s/rad), scalar or nSpr×1
+        %   t_on  — damping switches on at this time (default 0)
+        %   sign  — +1 or -1 to match the element's moment convention
+        %           (default +1; flip if it adds energy instead of removing)
+        % Leave empty ([]) to disable. Requires assembly.rot_spr_3N.
+        rotDamping = []
+
+        % Optional progress callback, invoked periodically during the time-
+        % stepping loop as progressFcn(frac) with frac = i/step in [0,1].
+        % Used by GUIs to drive a progress bar. Leave empty ([]) to disable.
+        progressFcn = []
+
     end
     methods
         % Solve the deformation history. Optional 2nd output ctrlLog

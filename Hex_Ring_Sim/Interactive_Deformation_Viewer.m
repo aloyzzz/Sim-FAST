@@ -58,13 +58,17 @@ function Interactive_Deformation_Viewer(viz)
         jpts    = [-Fscale, 0, Fscale];
     end
 
-    %% ---- Precompute fixed axis limits (over all frames, magnified) --------
-    P = node_coords;  P = reshape(P,[1 size(P)]);
-    allPos = P + magnify*Uhis;                       % (nFrames×N×3)
-    mn = squeeze(min(min(allPos,[],1),[],2));
-    mx = squeeze(max(max(allPos,[],1),[],2));
-    ctr = (mn+mx)/2;  half = max((mx-mn)/2);  half = max(half, 1e-3)*1.15;
-    Lim = [ctr-half, ctr+half];
+    %% ---- Fixed axis limits, framed on the UNDEFORMED structure ------------
+    % Deliberately independent of the deformation magnitude: an unstable /
+    % blown-up case (large finite or non-finite Uhis) would otherwise make
+    % the limits huge and shrink the real structure to an invisible speck.
+    % Here the body is always framed; extreme motion simply moves off-screen.
+    coordMn = min(node_coords,[],1)';
+    coordMx = max(node_coords,[],1)';
+    ctr  = (coordMn + coordMx)/2;
+    half = max(coordMx - coordMn)/2;
+    half = max(half, 1e-3) * 1.6;        % margin for the body + magnified motion
+    Lim  = [ctr - half, ctr + half];
 
     %% ---- Panel colors -----------------------------------------------------
     hex_face        = repmat([0.30 0.55 0.80], nHex, 1);
