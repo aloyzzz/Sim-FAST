@@ -1,4 +1,4 @@
-function Uhis=Solve(obj)
+function [Uhis,ctrlLog]=Solve(obj)
 
     % Input setup from loading controller
     assembly=obj.assembly;
@@ -47,7 +47,129 @@ function Uhis=Solve(obj)
    
     % Find the mass matrix of the system
     MassMat=assembly.node.FindMassMat();
-    
+
+    % --- Closed-loop PID controller set-up ---------------------------------
+    % Pre-allocate the controller state and logs. The controller, when
+    % enabled, computes the eigen-(pre)strain command for the actuated bars
+    % at every step so the actuators counteract external disturbances.
+    useCtrl = ~isempty(obj.control);
+    ctrlLog = [];
+    if useCtrl
+        c          = obj.control;
+        ctrlBars   = c.bar_ids(:);
+        nAct       = numel(ctrlBars);
+
+        % Gains and limits (scalars are broadcast to every actuated bar).
+        Kp   = local_col(getfield_default(c,'Kp',0),  nAct);
+        Ki   = local_col(getfield_default(c,'Ki',0),  nAct);
+        Kd   = local_col(getfield_default(c,'Kd',0),  nAct);
+        eTgt = local_col(getfield_default(c,'target_strain',0), nAct);
+        pLim = local_col(getfield_default(c,'prestrain_limit',Inf), nAct);
+        tOn  = getfield_default(c,'t_on',0);
+
+        % Optional first-order low-pass on the derivative term. The raw
+        % derivative (e-ePrev)/dt amplifies step-to-step strain noise, which
+        % on a lightly-constrained structure drives the actuators into
+        % bang-bang saturation chatter. deriv_tau>0 (seconds) filters it:
+        %   dF += (dt/(tau+dt))*(deriv_raw - dF)
+        % tau=0 (default) keeps the original unfiltered behaviour.
+        derivTau = getfield_default(c,'deriv_tau',0);
+        derivF   = zeros(nAct,1);  % filtered-derivative state
+
+        % --- Optional velocity (rate) feedback for active damping ----------
+        % An axial actuator removes vibration energy by opposing the rate at
+        % which its joint is being stretched. That rate is read here from the
+        % solver's node-velocity state (VHis) — the clean modal velocity a
+        % real IMU / rate-gyro network would provide — instead of numerically
+        % differencing the noisy strain signal (the Kd term). This is a
+        % collocated, passive (dissipative) damper, so it damps rather than
+        % destabilises. Kv=0 (default) disables it, leaving behaviour intact.
+        %   c.Kv          — velocity-damping gain (scalar or nAct×1)
+        %   c.vel_sensor  — 'exact' uses VHis directly; 'imu' first collapses
+        %                   each panel's node velocities to a rigid-body fit
+        %                   (v_centroid + omega×r), modelling what a panel-
+        %                   mounted IMU + rate gyro actually senses.
+        %   c.imu.panel_nodes — 1×nPanel cell of node-index vectors ('imu')
+        Kv        = local_col(getfield_default(c,'Kv',0), nAct);
+        velMode   = getfield_default(c,'vel_sensor','exact');
+        imuCfg    = getfield_default(c,'imu',[]);
+        useVel    = any(Kv ~= 0);
+        refCoords = assembly.node.coordinates_mat;
+        barNodes  = assembly.bar.node_ij_mat(ctrlBars,:);  % nAct×2 endpoints
+
+        Iacc   = zeros(nAct,1);   % integral accumulator
+        ePrev  = zeros(nAct,1);   % previous error (for derivative term)
+        ctrlInit = false;
+
+        ctrlLog.bar_ids        = ctrlBars;
+        ctrlLog.strain_his     = zeros(step,nAct);  % measured bar strain
+        ctrlLog.error_his      = zeros(step,nAct);  % control error
+        ctrlLog.prestrain_his  = zeros(step,nAct);  % commanded prestrain
+        ctrlLog.strainrate_his = zeros(step,nAct);  % sensed axial strain rate
+    end
+
+    % --- Active rotational-joint damping / PID set-up -----------------------
+    % Both blocks act on the same hinges through the same channel (an offset
+    % of the stress-free angle), so they share one angle measurement and their
+    % commanded moments are summed. Either may be enabled on its own.
+    hasRotSpr  = isprop(assembly,'rot_spr_3N') && ~isempty(assembly.rot_spr_3N);
+    useRotDamp = ~isempty(obj.rotDamping) && hasRotSpr;
+    useRotPID  = ~isempty(obj.rotControl) && hasRotSpr;
+    useRotAct  = useRotDamp || useRotPID;
+    if useRotAct
+        rs       = assembly.rot_spr_3N;
+        rsIJK    = rs.node_ijk_mat;                 % nSpr×3 (i, vertex j, k)
+        nSpr     = size(rsIJK,1);
+        rsK      = rs.rot_spr_K_vec;
+        rsTheta0 = rs.theta_stress_free_vec;        % nominal rest angles
+        refCoordsAll = assembly.node.coordinates_mat;
+        rdThetaPrev  = rsTheta0;                     % previous hinge angle
+        rdDF         = zeros(nSpr,1);                % filtered dθ/dt state
+        rdInit       = false;
+
+        if useRotDamp
+            rdC    = local_col(getfield_default(obj.rotDamping,'C',0), nSpr);
+            rdOn   = getfield_default(obj.rotDamping,'t_on',0);
+            rdSign = getfield_default(obj.rotDamping,'sign',1);
+            rdTau  = getfield_default(obj.rotDamping,'tau',0.02); % dθ/dt LP filter
+        else
+            rdC = zeros(nSpr,1);  rdOn = Inf;  rdSign = 1;  rdTau = 0.02;
+        end
+
+        if useRotPID
+            rc        = obj.rotControl;
+            rcKp      = local_col(getfield_default(rc,'Kp',0), nSpr);
+            rcKi      = local_col(getfield_default(rc,'Ki',0), nSpr);
+            rcKd      = local_col(getfield_default(rc,'Kd',0), nSpr);
+            rcTarget  = local_col(getfield_default(rc,'target_angle',rsTheta0), nSpr);
+            rcOn      = getfield_default(rc,'t_on',0);
+            rcSign    = getfield_default(rc,'sign',-1);
+            rcMlim    = local_col(getfield_default(rc,'moment_limit',Inf), nSpr);
+            rcTau     = getfield_default(rc,'tau',0.02);
+            rcIacc    = zeros(nSpr,1);              % integral accumulator
+        else
+            rcOn = Inf;  rcTau = 0.02;  rcTarget = rsTheta0;
+        end
+        % One filter serves both Kd paths; use the tighter constant asked for.
+        if useRotDamp && useRotPID, rdTau = min(rdTau, rcTau);
+        elseif useRotPID,           rdTau = rcTau;
+        end
+
+        if isstruct(ctrlLog)
+            rdLog = ctrlLog;
+        else
+            rdLog = struct();
+        end
+        rdLog.rot_ijk        = rsIJK;
+        rdLog.rot_theta0     = rsTheta0;
+        rdLog.rot_theta_his  = zeros(step,nSpr);    % measured hinge angle
+        rdLog.rot_dtheta_his = zeros(step,nSpr);    % sensed hinge angular rate
+        rdLog.rot_error_his  = zeros(step,nSpr);    % hinge angle error
+        rdLog.rot_moment_his = zeros(step,nSpr);    % total applied moment
+        rdLog.rot_mpid_his   = zeros(step,nSpr);    % PID part of that moment
+        ctrlLog = rdLog;
+    end
+
     % Implement the explicit solver
     for i=1:step
 
@@ -59,6 +181,131 @@ function Uhis=Solve(obj)
             L0_nat = obj.actuation.L0_nat;
             assembly.bar.prestrain_vec(obj.actuation.bar_ids) = (L0_i - L0_nat) ./ L0_nat;
         end
+
+        % --- Closed-loop PID actuation -------------------------------------
+        if useCtrl
+            Ui = squeeze(Uhis(i,:,:));
+            % Measure current engineering strain of each actuated bar.
+            ExAll  = assembly.bar.Solve_Strain(assembly.node, Ui);
+            measEx = ExAll(ctrlBars);
+
+            % Sense each actuated joint's axial strain rate from the node
+            % velocity state (optionally IMU rigid-body-filtered per panel).
+            sRate = zeros(nAct,1);
+            if useVel
+                Vi = squeeze(VHis(i,:,:));
+                if strcmp(velMode,'imu') && ~isempty(imuCfg)
+                    Vi = local_imu_rigid(Vi, refCoords + Ui, imuCfg.panel_nodes);
+                end
+                Pi = refCoords + Ui;
+                dP = Pi(barNodes(:,2),:) - Pi(barNodes(:,1),:);   % nAct×3
+                Lb = sqrt(sum(dP.^2,2));
+                dV = Vi(barNodes(:,2),:) - Vi(barNodes(:,1),:);
+                axialV = sum(dV.*dP,2) ./ max(Lb,eps);   % (v_j-v_i)·nhat  [m/s]
+                sRate  = axialV ./ max(Lb,eps);          % ≈ d(strain)/dt
+            end
+
+            if TimeVec(i) >= tOn
+                e = eTgt - measEx;                 % control error
+                if ~ctrlInit
+                    ePrev = e;                     % avoid derivative kick
+                    ctrlInit = true;
+                end
+                derivRaw = (e - ePrev) / dt;
+                if derivTau > 0
+                    derivF = derivF + (dt/(derivTau+dt))*(derivRaw - derivF);
+                    deriv  = derivF;
+                else
+                    deriv  = derivRaw;
+                end
+
+                % Trial command: PID on strain + clean velocity damping.
+                % (-Kv*sRate opposes the joint's stretching velocity.)
+                cmd = Kp.*e + Ki.*Iacc + Kd.*deriv - Kv.*sRate;
+
+                % Conditional integration (anti-windup): only accumulate when
+                % the command is not pushing further into saturation.
+                notSat = (abs(cmd) < pLim) | (sign(e) ~= sign(cmd));
+                Iacc(notSat) = Iacc(notSat) + e(notSat)*dt;
+
+                % Recompute and saturate the command to the stroke limit.
+                cmd = Kp.*e + Ki.*Iacc + Kd.*deriv - Kv.*sRate;
+                cmd = max(-pLim, min(pLim, cmd));
+
+                ePrev = e;
+            else
+                e   = eTgt - measEx;
+                cmd = zeros(nAct,1);
+            end
+
+            assembly.bar.prestrain_vec(ctrlBars) = cmd;
+
+            ctrlLog.strain_his(i,:)     = measEx';
+            ctrlLog.error_his(i,:)      = e';
+            ctrlLog.prestrain_his(i,:)  = cmd';
+            ctrlLog.strainrate_his(i,:) = sRate';
+        end
+
+        % --- Active rotational-joint damping / PID -------------------------
+        % Both inject a moment at each hinge by offsetting its stress-free
+        % angle: θ_stress_free = θ0 - M/K makes the element return
+        % M_spring = K(θ-θ0) + M. dθ/dt is the hinge angular rate a
+        % gyro/encoder would report, obtained by differencing the well-defined
+        % joint angle (Solve_Theta) and low-pass filtering it (the closed-form
+        % acos-derivative is singular near θ=0/π, so we don't use it).
+        if useRotAct && TimeVec(i) >= min(rdOn, rcOn)
+            Pui = refCoordsAll + squeeze(Uhis(i,:,:));
+            thNow = zeros(nSpr,1);
+            for si = 1:nSpr
+                jn = rsIJK(si,2);
+                a  = Pui(rsIJK(si,1),:) - Pui(jn,:);
+                b  = Pui(rsIJK(si,3),:) - Pui(jn,:);
+                na = norm(a); nb = norm(b);
+                if na < eps || nb < eps, thNow(si) = rdThetaPrev(si); continue; end
+                thNow(si) = real(acos( dot(a,b)/(na*nb) ));
+            end
+            if ~rdInit, rdThetaPrev = thNow; rdInit = true; end
+            dthRaw = (thNow - rdThetaPrev) / dt;
+            if rdTau > 0
+                rdDF = rdDF + (dt/(rdTau+dt))*(dthRaw - rdDF);
+                dth  = rdDF;
+            else
+                dth  = dthRaw;
+            end
+            rdThetaPrev = thNow;
+
+            % Rate feedback (rotDamping): M = -sign*C*dθ/dt.
+            Mdamp = zeros(nSpr,1);
+            if useRotDamp && TimeVec(i) >= rdOn
+                Mdamp = -rdSign*rdC.*dth;
+            end
+
+            % Full PID on the hinge angle (rotControl). e = θ_target - θ, so
+            % de/dt = -dθ/dt; with sign=-1 and Kp=Ki=0 this reproduces Mdamp
+            % exactly for Kd=C, which is why the two compose additively.
+            Mpid = zeros(nSpr,1);
+            if useRotPID && TimeVec(i) >= rcOn
+                e      = rcTarget - thNow;
+                Mraw   = rcSign*(rcKp.*e + rcKi.*rcIacc + rcKd.*(-dth));
+                Mpid   = max(-rcMlim, min(rcMlim, Mraw));
+                % Anti-windup (conditional integration): integrate where the
+                % command is unsaturated, and also where it is saturated but
+                % this step's increment pulls it back toward the linear range
+                % — freezing unconditionally would latch a saturated hinge.
+                incr   = rcSign*rcKi.*e*dt;      % this step's moment increment
+                free   = abs(Mraw) < rcMlim | sign(incr) ~= sign(Mraw);
+                rcIacc(free) = rcIacc(free) + e(free)*dt;
+            end
+
+            Mtot = Mdamp + Mpid;
+            rs.theta_stress_free_vec = rsTheta0 - Mtot ./ max(rsK,eps);
+            ctrlLog.rot_theta_his(i,:)  = thNow';
+            ctrlLog.rot_dtheta_his(i,:) = dth';
+            ctrlLog.rot_error_his(i,:)  = (rcTarget - thNow)';
+            ctrlLog.rot_moment_his(i,:) = Mtot';
+            ctrlLog.rot_mpid_his(i,:)   = Mpid';
+        end
+
         [T,K]=assembly.Solve_FK(squeeze(Uhis(i,:,:)));
 
         [K,T]=Mod_K_For_Supp(K,supp,T);
@@ -98,10 +345,66 @@ function Uhis=Solve(obj)
         
         if rem(i,1000)==0
             fprintf('finish solving %d step \n',i);
-        end       
-        
+        end
+
+        % Report progress (~50 updates over the run) to any listener.
+        if ~isempty(obj.progressFcn) && ...
+                (rem(i, max(1,floor(step/50)))==0 || i==step)
+            obj.progressFcn(i/step);
+        end
+
     end
 
     Uhis=Uhis(1:step,:,:);
 
+end
+
+% --- Local helpers ---------------------------------------------------------
+function val = getfield_default(s, name, default)
+    % Return s.(name) if it exists and is non-empty, otherwise default.
+    if isfield(s, name) && ~isempty(s.(name))
+        val = s.(name);
+    else
+        val = default;
+    end
+end
+
+function col = local_col(val, n)
+    % Expand a scalar to an n×1 column, or pass through an n×1 vector.
+    if isscalar(val)
+        col = val * ones(n,1);
+    else
+        col = val(:);
+    end
+end
+
+function Vout = local_imu_rigid(V, P, panelNodes)
+    % Model a panel IMU + rate gyro: collapse each panel's node velocities to
+    % the best-fit rigid-body field  v_node = v_centroid + omega × r , which
+    % is the motion an IMU/gyro on that (near-rigid) panel actually senses —
+    % rejecting intra-panel elastic flex. Least-squares angular velocity:
+    %   M*omega = sum(r_k × u_k),   M = sum(|r_k|^2 I - r_k r_k^T)
+    % with r_k the node offset from the panel centroid and u_k its velocity
+    % residual. Nodes not in any panel keep their raw velocity.
+    Vout = V;
+    for pnl = 1:numel(panelNodes)
+        idx = panelNodes{pnl}(:);
+        if numel(idx) < 2, continue; end
+        Pc = mean(P(idx,:),1);
+        Vc = mean(V(idx,:),1);
+        r  = P(idx,:) - Pc;
+        u  = V(idx,:) - Vc;
+        M  = zeros(3);  b = zeros(3,1);
+        for k = 1:numel(idx)
+            rk = r(k,:)';  uk = u(k,:)';
+            M  = M + (rk'*rk)*eye(3) - rk*rk';
+            b  = b + cross(rk, uk);
+        end
+        if rcond(M) < 1e-12
+            omega = [0;0;0];
+        else
+            omega = M \ b;
+        end
+        Vout(idx,:) = Vc + cross(repmat(omega',numel(idx),1), r, 2);
+    end
 end
