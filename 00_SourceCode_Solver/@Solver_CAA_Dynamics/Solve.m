@@ -108,32 +108,65 @@ function [Uhis,ctrlLog]=Solve(obj)
         ctrlLog.strainrate_his = zeros(step,nAct);  % sensed axial strain rate
     end
 
-    % --- Active rotational-joint damping set-up ----------------------------
-    useRotDamp = ~isempty(obj.rotDamping) && ...
-                 isprop(assembly,'rot_spr_3N') && ~isempty(assembly.rot_spr_3N);
-    if useRotDamp
+    % --- Active rotational-joint damping / PID set-up -----------------------
+    % Both blocks act on the same hinges through the same channel (an offset
+    % of the stress-free angle), so they share one angle measurement and their
+    % commanded moments are summed. Either may be enabled on its own.
+    hasRotSpr  = isprop(assembly,'rot_spr_3N') && ~isempty(assembly.rot_spr_3N);
+    useRotDamp = ~isempty(obj.rotDamping) && hasRotSpr;
+    useRotPID  = ~isempty(obj.rotControl) && hasRotSpr;
+    useRotAct  = useRotDamp || useRotPID;
+    if useRotAct
         rs       = assembly.rot_spr_3N;
         rsIJK    = rs.node_ijk_mat;                 % nSpr×3 (i, vertex j, k)
         nSpr     = size(rsIJK,1);
         rsK      = rs.rot_spr_K_vec;
-        rdC      = local_col(getfield_default(obj.rotDamping,'C',0), nSpr);
-        rdOn     = getfield_default(obj.rotDamping,'t_on',0);
-        rdSign   = getfield_default(obj.rotDamping,'sign',1);
-        rdTau    = getfield_default(obj.rotDamping,'tau',0.02);  % dθ/dt LP filter
         rsTheta0 = rs.theta_stress_free_vec;        % nominal rest angles
         refCoordsAll = assembly.node.coordinates_mat;
         rdThetaPrev  = rsTheta0;                     % previous hinge angle
         rdDF         = zeros(nSpr,1);                % filtered dθ/dt state
         rdInit       = false;
+
+        if useRotDamp
+            rdC    = local_col(getfield_default(obj.rotDamping,'C',0), nSpr);
+            rdOn   = getfield_default(obj.rotDamping,'t_on',0);
+            rdSign = getfield_default(obj.rotDamping,'sign',1);
+            rdTau  = getfield_default(obj.rotDamping,'tau',0.02); % dθ/dt LP filter
+        else
+            rdC = zeros(nSpr,1);  rdOn = Inf;  rdSign = 1;  rdTau = 0.02;
+        end
+
+        if useRotPID
+            rc        = obj.rotControl;
+            rcKp      = local_col(getfield_default(rc,'Kp',0), nSpr);
+            rcKi      = local_col(getfield_default(rc,'Ki',0), nSpr);
+            rcKd      = local_col(getfield_default(rc,'Kd',0), nSpr);
+            rcTarget  = local_col(getfield_default(rc,'target_angle',rsTheta0), nSpr);
+            rcOn      = getfield_default(rc,'t_on',0);
+            rcSign    = getfield_default(rc,'sign',-1);
+            rcMlim    = local_col(getfield_default(rc,'moment_limit',Inf), nSpr);
+            rcTau     = getfield_default(rc,'tau',0.02);
+            rcIacc    = zeros(nSpr,1);              % integral accumulator
+        else
+            rcOn = Inf;  rcTau = 0.02;  rcTarget = rsTheta0;
+        end
+        % One filter serves both Kd paths; use the tighter constant asked for.
+        if useRotDamp && useRotPID, rdTau = min(rdTau, rcTau);
+        elseif useRotPID,           rdTau = rcTau;
+        end
+
         if isstruct(ctrlLog)
             rdLog = ctrlLog;
         else
             rdLog = struct();
         end
-        rdLog.rot_ijk       = rsIJK;
-        rdLog.rot_theta0    = rsTheta0;
+        rdLog.rot_ijk        = rsIJK;
+        rdLog.rot_theta0     = rsTheta0;
+        rdLog.rot_theta_his  = zeros(step,nSpr);    % measured hinge angle
         rdLog.rot_dtheta_his = zeros(step,nSpr);    % sensed hinge angular rate
-        rdLog.rot_moment_his = zeros(step,nSpr);    % applied damping moment
+        rdLog.rot_error_his  = zeros(step,nSpr);    % hinge angle error
+        rdLog.rot_moment_his = zeros(step,nSpr);    % total applied moment
+        rdLog.rot_mpid_his   = zeros(step,nSpr);    % PID part of that moment
         ctrlLog = rdLog;
     end
 
@@ -213,13 +246,14 @@ function [Uhis,ctrlLog]=Solve(obj)
             ctrlLog.strainrate_his(i,:) = sRate';
         end
 
-        % --- Active rotational-joint damping -------------------------------
-        % Inject M = -sign*C*dθ/dt at each hinge by offsetting its stress-free
-        % angle. dθ/dt is the hinge angular rate a gyro/encoder would report,
-        % obtained by differencing the well-defined joint angle (Solve_Theta)
-        % and low-pass filtering it (the closed-form acos-derivative is
-        % singular near θ=0/π, so we don't use it).
-        if useRotDamp && TimeVec(i) >= rdOn
+        % --- Active rotational-joint damping / PID -------------------------
+        % Both inject a moment at each hinge by offsetting its stress-free
+        % angle: θ_stress_free = θ0 - M/K makes the element return
+        % M_spring = K(θ-θ0) + M. dθ/dt is the hinge angular rate a
+        % gyro/encoder would report, obtained by differencing the well-defined
+        % joint angle (Solve_Theta) and low-pass filtering it (the closed-form
+        % acos-derivative is singular near θ=0/π, so we don't use it).
+        if useRotAct && TimeVec(i) >= min(rdOn, rcOn)
             Pui = refCoordsAll + squeeze(Uhis(i,:,:));
             thNow = zeros(nSpr,1);
             for si = 1:nSpr
@@ -239,9 +273,37 @@ function [Uhis,ctrlLog]=Solve(obj)
                 dth  = dthRaw;
             end
             rdThetaPrev = thNow;
-            rs.theta_stress_free_vec = rsTheta0 + rdSign*(rdC ./ max(rsK,eps)).*dth;
+
+            % Rate feedback (rotDamping): M = -sign*C*dθ/dt.
+            Mdamp = zeros(nSpr,1);
+            if useRotDamp && TimeVec(i) >= rdOn
+                Mdamp = -rdSign*rdC.*dth;
+            end
+
+            % Full PID on the hinge angle (rotControl). e = θ_target - θ, so
+            % de/dt = -dθ/dt; with sign=-1 and Kp=Ki=0 this reproduces Mdamp
+            % exactly for Kd=C, which is why the two compose additively.
+            Mpid = zeros(nSpr,1);
+            if useRotPID && TimeVec(i) >= rcOn
+                e      = rcTarget - thNow;
+                Mraw   = rcSign*(rcKp.*e + rcKi.*rcIacc + rcKd.*(-dth));
+                Mpid   = max(-rcMlim, min(rcMlim, Mraw));
+                % Anti-windup (conditional integration): integrate where the
+                % command is unsaturated, and also where it is saturated but
+                % this step's increment pulls it back toward the linear range
+                % — freezing unconditionally would latch a saturated hinge.
+                incr   = rcSign*rcKi.*e*dt;      % this step's moment increment
+                free   = abs(Mraw) < rcMlim | sign(incr) ~= sign(Mraw);
+                rcIacc(free) = rcIacc(free) + e(free)*dt;
+            end
+
+            Mtot = Mdamp + Mpid;
+            rs.theta_stress_free_vec = rsTheta0 - Mtot ./ max(rsK,eps);
+            ctrlLog.rot_theta_his(i,:)  = thNow';
             ctrlLog.rot_dtheta_his(i,:) = dth';
-            ctrlLog.rot_moment_his(i,:) = (-rdSign*rdC.*dth)';
+            ctrlLog.rot_error_his(i,:)  = (rcTarget - thNow)';
+            ctrlLog.rot_moment_his(i,:) = Mtot';
+            ctrlLog.rot_mpid_his(i,:)   = Mpid';
         end
 
         [T,K]=assembly.Solve_FK(squeeze(Uhis(i,:,:)));

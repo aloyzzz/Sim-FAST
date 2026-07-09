@@ -23,6 +23,8 @@ function Interactive_Deformation_Viewer(viz)
 %   bar_conn     (nBars×2) bar connectivity                    (optional)
 %   joint_ids    (nJ×1)  joint-bar indices into bar_conn       (optional)
 %   jointForce   (S×nJ)  joint axial force history (for color) (optional)
+%   actuator_ids (nA×1)  actuated joint-bar indices            (optional)
+%   actuator_cmd (S×nA)  signed prestrain / actuation command  (optional)
 %   dt           time step (s)                                 (default 1)
 %   skip         frame subsample stride                        (default 1)
 %   magnify      displacement magnification factor             (default 1)
@@ -43,6 +45,13 @@ function Interactive_Deformation_Viewer(viz)
                 isfield(viz,'joint_ids') && ~isempty(viz.joint_ids);
     hasForce  = hasBars && isfield(viz,'jointForce') && ~isempty(viz.jointForce);
     if hasBars,  bar_conn = viz.bar_conn;  joint_ids = viz.joint_ids(:);  end
+    hasAct = hasBars && isfield(viz,'actuator_ids') && ~isempty(viz.actuator_ids);
+    if hasAct
+        actuator_ids = viz.actuator_ids(:);
+        hasActCmd = isfield(viz,'actuator_cmd') && ~isempty(viz.actuator_cmd);
+    else
+        hasActCmd = false;
+    end
 
     % Subsample frames for smooth interaction
     fr      = 1:skip:size(Uall,1);
@@ -57,6 +66,13 @@ function Interactive_Deformation_Viewer(viz)
         jcmap   = [0.15 0.35 1.0; 0.85 0.85 0.85; 1 0.15 0.15];  % comp-neutral-tens
         jpts    = [-Fscale, 0, Fscale];
     end
+    if hasActCmd
+        actCmd = viz.actuator_cmd(fr,:);
+        cmdScale = max(abs(viz.actuator_cmd(:)));
+        if cmdScale < eps, cmdScale = 1; end
+    elseif hasAct
+        cmdScale = 1;
+    end
 
     %% ---- Fixed axis limits, framed on the UNDEFORMED structure ------------
     % Deliberately independent of the deformation magnitude: an unstable /
@@ -66,9 +82,17 @@ function Interactive_Deformation_Viewer(viz)
     coordMn = min(node_coords,[],1)';
     coordMx = max(node_coords,[],1)';
     ctr  = (coordMn + coordMx)/2;
-    half = max(coordMx - coordMn)/2;
-    half = max(half, 1e-3) * 1.6;        % margin for the body + magnified motion
-    Lim  = [ctr - half, ctr + half];
+    span = max(coordMx - coordMn);
+    % In-plane (X,Z) gets a modest margin. The structure is essentially flat in
+    % Y, so giving Y the same half-width as X and Z would frame a big empty
+    % cube and shrink the model to a chip in the middle of it; Y gets a slab
+    % deep enough for the magnified out-of-plane motion instead.
+    halfXZ = max(span/2, 1e-3) * 1.15;
+    halfY  = max(halfXZ * 0.25, 1e-3);
+    half   = [halfXZ; halfY; halfXZ];
+    Lim    = [ctr - half, ctr + half];
+    arrowOff  = max(1e-5, 0.022 * span);  % sideways offset of the axial arrows
+    ghostLift = max(1e-6, 0.002 * span);  % just enough to beat z-fighting
 
     %% ---- Panel colors -----------------------------------------------------
     hex_face        = repmat([0.30 0.55 0.80], nHex, 1);
@@ -86,12 +110,15 @@ function Interactive_Deformation_Viewer(viz)
     defView = [35 22];  view(ax,defView);
     try, enableDefaultInteractivity(ax); catch, end   % drag-orbit / scroll-zoom
 
-    % Undeformed ghost outlines (static)
+    % Undeformed ghost outlines (static). Pushed one lift behind the deformed
+    % panels along Y: drawn coplanar they z-fight, which streaks the panels
+    % with white slivers wherever the deformation is small.
     for h = 1:nHex
         v = node_coords(hex_nodes(h,:),:);
-        patch('Parent',ax,'XData',v(:,1),'YData',v(:,2),'ZData',v(:,3), ...
+        hg = patch('Parent',ax,'XData',v(:,1),'YData',v(:,2)-ghostLift,'ZData',v(:,3), ...
               'FaceColor',[0.92 0.92 0.92],'FaceAlpha',0.10, ...
               'EdgeColor',[0.8 0.8 0.8],'LineStyle','--','LineWidth',0.4);
+        hideFromLegend(hg);
     end
 
     % Deformed panels (handles updated each frame)
@@ -101,6 +128,7 @@ function Interactive_Deformation_Viewer(viz)
         hPanel(h) = patch('Parent',ax,'XData',v(:,1),'YData',v(:,2),'ZData',v(:,3), ...
               'FaceColor',hex_face(h,:),'FaceAlpha',0.95,'EdgeColor','k','LineWidth',1.2);
     end
+    hideFromLegend(hPanel);
 
     % Joint bars (handles updated each frame)
     if hasBars
@@ -112,6 +140,61 @@ function Interactive_Deformation_Viewer(viz)
             hJoint(b) = plot3(ax,[p1(1) p2(1)],[p1(2) p2(2)],[p1(3) p2(3)], ...
                               '-','LineWidth',4.0,'Color',[0.6 0.6 0.6]);
         end
+        hideFromLegend(hJoint);
+    end
+
+    % Actuated hinges / joint bars: bright overlay plus paired axial arrows.
+    % setFrame recolours both by the sign of the command, so the legend keys
+    % must be the sign colours — not the creation colour.
+    ACT_IDLE   = [1.00 0.20 0.10];
+    ACT_CONTRA = [0.95 0.00 0.80];
+    ACT_EXTEND = [0.00 0.45 1.00];
+    % A contracting actuator's arrows point inward, i.e. straight along the bar
+    % they sit on. Same colour as the bar they would be invisible, so they get
+    % their own dark colour and ride one lift above it.
+    ARROW_C    = [0.15 0.15 0.15];
+    if hasAct
+        nA = numel(actuator_ids);
+        % An actuated bar IS a joint bar. Hide the grey one underneath rather
+        % than drawing the coloured overlay on top of it: coincident lines
+        % z-fight, and nudging the overlay clear of them along Y just renders
+        % it as a second line running alongside at every orbit angle.
+        if hasBars
+            [tfA, locA] = ismember(actuator_ids, joint_ids);
+            set(hJoint(locA(tfA)), 'Visible','off');
+        end
+        hActLine = gobjects(nA,1);
+        hActQ1   = gobjects(nA,1);
+        hActQ2   = gobjects(nA,1);
+        for a = 1:nA
+            n12 = bar_conn(actuator_ids(a),:);
+            p1 = node_coords(n12(1),:);  p2 = node_coords(n12(2),:);
+            hActLine(a) = plot3(ax,[p1(1) p2(1)],[p1(2) p2(2)],[p1(3) p2(3)], ...
+                                '-','LineWidth',4.8,'Color',ACT_IDLE);
+            % quiver3 renders the shaft but drops the arrowhead at these
+            % scales, which leaves the actuation direction unreadable. Each
+            % arrow is a plain polyline: shaft plus two barbs (see arrowPoly).
+            hActQ1(a) = plot3(ax,nan,nan,nan,'-','Color',ARROW_C,'LineWidth',1.6);
+            hActQ2(a) = plot3(ax,nan,nan,nan,'-','Color',ARROW_C,'LineWidth',1.6);
+        end
+        hideFromLegend(hActLine);
+        hideFromLegend(hActQ1);
+        hideFromLegend(hActQ2);
+        % Off-screen proxies carry the whole legend — every real patch, bar and
+        % arrow is excluded above, otherwise they enumerate as data1..dataN.
+        % A quiver with NaN data draws no legend icon, so the arrow key is a
+        % line with an arrowhead marker instead.
+        hKey    = gobjects(4,1);
+        hKey(1) = plot3(ax,nan,nan,nan,'-','LineWidth',4.8,'Color',ACT_CONTRA, ...
+              'DisplayName','Actuator contracting');
+        hKey(2) = plot3(ax,nan,nan,nan,'-','LineWidth',4.8,'Color',ACT_EXTEND, ...
+              'DisplayName','Actuator extending');
+        hKey(3) = plot3(ax,nan,nan,nan,'-','LineWidth',4.8,'Color',ACT_IDLE, ...
+              'DisplayName','Actuator idle');
+        hKey(4) = plot3(ax,nan,nan,nan,'-','LineWidth',1.6,'Color',ARROW_C, ...
+              'Marker','>','MarkerSize',5,'MarkerFaceColor',ARROW_C, ...
+              'DisplayName','Axial actuation direction');
+        legend(ax, hKey, 'Location','northeast','AutoUpdate','off','FontSize',9);
     end
 
     hTitle = title(ax,'','FontSize',12);
@@ -139,7 +222,7 @@ function Interactive_Deformation_Viewer(viz)
         'BackgroundColor','white','HorizontalAlignment','right', ...
         'Position',[0.74 0.105 0.10 0.03],'String','Magnify ×');
     hMag = uicontrol(fig,'Style','edit','Units','normalized','FontSize',9, ...
-        'String',num2str(magnify),'Position',[0.85 0.105 0.10 0.03], ...
+        'String',sprintf('%.4g',magnify),'Position',[0.85 0.105 0.10 0.03], ...
         'Callback',@onMag);
 
     % Live slider scrubbing
@@ -178,7 +261,7 @@ function Interactive_Deformation_Viewer(viz)
             % limits stay fixed (computed for the original magnify); just redraw
             setFrame(frame);
         else
-            set(src,'String',num2str(magnify));
+            set(src,'String',sprintf('%.4g',magnify));
         end
     end
 
@@ -203,7 +286,52 @@ function Interactive_Deformation_Viewer(viz)
                 if hasForce, set(hJoint(bb),'Color',fcl(bb,:)); end
             end
         end
-        set(hTitle,'String',sprintf('%s\n t = %.2f s   (frame %d / %d, magnify ×%g)', ...
+        if hasAct
+            cmd = zeros(1,numel(actuator_ids));
+            if hasActCmd, cmd = actCmd(k,:); end
+            maxArrow = 0.07 * span;
+            for aa = 1:numel(actuator_ids)
+                n12 = bar_conn(actuator_ids(aa),:);
+                p1 = def(n12(1),:);  p2 = def(n12(2),:);
+                axisVec = p2 - p1;
+                L = norm(axisVec);
+                if L < eps
+                    dir = [1 0 0];
+                else
+                    dir = axisVec / L;
+                end
+                % The arrows run along the bar, so drawn on it they vanish
+                % underneath. Step them sideways, in the structure's plane.
+                sideVec = cross(dir, [0 1 0]);
+                if norm(sideVec) < eps, sideVec = [0 0 1]; end
+                sideUnit = sideVec / norm(sideVec);
+                p1a = p1 + arrowOff*sideUnit;  p2a = p2 + arrowOff*sideUnit;
+                c = cmd(aa);
+                color = ACT_IDLE;
+                if c < -eps
+                    color = ACT_CONTRA;             % contraction / tension
+                    v1 =  dir;  v2 = -dir;
+                elseif c > eps
+                    color = ACT_EXTEND;             % extension / compression
+                    v1 = -dir;  v2 =  dir;
+                else
+                    v1 = [0 0 0];  v2 = [0 0 0];
+                end
+                magCmd = min(1, abs(c)/cmdScale);
+                qLen = maxArrow * magCmd;
+                set(hActLine(aa),'XData',[p1(1) p2(1)], ...
+                                  'YData',[p1(2) p2(2)], ...
+                                  'ZData',[p1(3) p2(3)], ...
+                                  'Color',color);
+                [aX,aY,aZ] = arrowPoly(p1a, qLen*v1, sideUnit);
+                set(hActQ1(aa),'XData',aX,'YData',aY,'ZData',aZ,'Color',ARROW_C);
+                [aX,aY,aZ] = arrowPoly(p2a, qLen*v2, sideUnit);
+                set(hActQ2(aa),'XData',aX,'YData',aY,'ZData',aZ,'Color',ARROW_C);
+            end
+        end
+        % The magnify factor belongs here (it is live-editable) and nowhere
+        % else — callers must not bake it into ttl or it prints twice.
+        set(hTitle,'String',sprintf('%s\n t = %.2f s   (frame %d / %d, magnify ×%.4g)', ...
                                     ttl, times(k), k, nFrames, magnify));
         drawnow limitrate;
     end
@@ -217,4 +345,28 @@ end
 
 function v = getdef(s, name, default)
     if isfield(s, name) && ~isempty(s.(name)), v = s.(name); else, v = default; end
+end
+
+function [X,Y,Z] = arrowPoly(base, vec, sideUnit)
+%ARROWPOLY  Shaft-plus-barbs polyline for one arrow, NaN-separated.
+%   A zero-length vec yields all-NaN, i.e. nothing is drawn (idle actuator).
+    L = norm(vec);
+    if L < eps
+        X = nan; Y = nan; Z = nan;  return;
+    end
+    d   = vec / L;
+    tip = base + vec;
+    b1  = tip - 0.32*L*d + 0.20*L*sideUnit;
+    b2  = tip - 0.32*L*d - 0.20*L*sideUnit;
+    P   = [base; tip; nan(1,3); b1; tip; b2];
+    X = P(:,1).';  Y = P(:,2).';  Z = P(:,3).';
+end
+
+function hideFromLegend(h)
+%HIDEFROMLEGEND  Keep graphics objects out of any legend on their axes.
+    for k = 1:numel(h)
+        if isgraphics(h(k))
+            h(k).Annotation.LegendInformation.IconDisplayStyle = 'off';
+        end
+    end
 end

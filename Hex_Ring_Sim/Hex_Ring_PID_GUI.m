@@ -31,12 +31,13 @@ GREEN_BTN = [0.14 0.56 0.34];
 ACCENT    = [0.35 0.60 0.95]; %#ok<NASGU>
 
 fig = uifigure('Name','Hex Center Ring PID Simulation Control', ...
-    'Position',[60 40 1480 880], 'Color',DARK_BG, 'Resize','on');
+    'Position',[60 40 1480 880], 'Color',DARK_BG, 'Resize','on', ...
+    'AutoResizeChildren','off');
 
 %% ---- Header ---------------------------------------------------------------
 header = uipanel(fig,'Position',[0 848 1480 32],'BackgroundColor',PANEL_BG, ...
-    'BorderType','none');
-uilabel(header,'Text','Hex Center Ring PID Simulation Control', ...
+    'BorderType','none','AutoResizeChildren','off');
+headerLbl = uilabel(header,'Text','Hex Center Ring PID Simulation Control', ...
     'Position',[0 0 1480 32], 'FontSize',17,'FontWeight','bold', ...
     'FontColor',GOLD,'HorizontalAlignment','center', ...
     'BackgroundColor',PANEL_BG);
@@ -44,10 +45,10 @@ uilabel(header,'Text','Hex Center Ring PID Simulation Control', ...
 %% ---- Left control panel ---------------------------------------------------
 LP_W = 385;
 lp = uipanel(fig,'Position',[8 8 LP_W 836],'BackgroundColor',PANEL_BG, ...
-    'BorderType','none','Title','');
+    'BorderType','none','Title','','AutoResizeChildren','off');
 
 % Simulation type selector
-mkLabel(lp,'Simulation',10,804,LP_W-20,20,13,'bold',WHITE);
+simLbl = mkLabel(lp,'Simulation',10,804,LP_W-20,20,13,'bold',WHITE);
 simDrop = uidropdown(lp, ...
     'Items',{'Hex Center Ring — Open Loop','Hex Center Ring — PID Control'}, ...
     'Value','Hex Center Ring — PID Control', ...
@@ -55,7 +56,7 @@ simDrop = uidropdown(lp, ...
     'BackgroundColor',FIELD_BG,'FontColor',WHITE,'FontSize',11);
 
 % ---- Tabbed parameter groups -----------------------------------------------
-tg = uitabgroup(lp,'Position',[5 235 LP_W-10 537]);
+tg = uitabgroup(lp,'Position',[5 258 LP_W-10 514]);
 tStruct = uitab(tg,'Title','  Structure  ');
 tSim    = uitab(tg,'Title','  Simulation  ');
 tPID    = uitab(tg,'Title','  PID Gains  ');
@@ -71,7 +72,7 @@ ROW = 54;   % label(20) + gap(6) + field(28) = 54 px per row
 % ------------------------------------------------------------------
 %  STRUCTURE tab
 % ------------------------------------------------------------------
-y = 460;
+y = 430;
 ef.R    = mkField(tStruct,'Circumradius R (m)',  0.50, C1,y,FW,FH);
 ef.barA = mkField(tStruct,'Bar area (m²)',        1e-4, C2,y,FW,FH); y=y-ROW;
 
@@ -88,7 +89,7 @@ uilabel(tStruct,'Text','K_rot = rotational-spring joint stiffness (24 springs)',
 % ------------------------------------------------------------------
 %  SIMULATION tab
 % ------------------------------------------------------------------
-y = 460;
+y = 430;
 ef.Fm   = mkField(tSim,'Force magnitude (N)',  80.0, C1,y,FW,FH);
 ef.tf   = mkField(tSim,'Force duration (s)',    2.0, C2,y,FW,FH); y=y-ROW;
 
@@ -98,7 +99,10 @@ ef.dt   = mkField(tSim,'Time step dt (s)',     0.01, C2,y,FW,FH); y=y-ROW;
 ef.alp  = mkField(tSim,'Rayleigh α  (mass)',   0.10, C1,y,FW,FH);
 ef.bet  = mkField(tSim,'Rayleigh β  (stiff)',  0.00, C2,y,FW,FH); y=y-ROW;
 
-mkLabel(tSim,'— Open-loop actuation † —',C1,y+30,340,22,11,'bold',GOLD);
+% Section header sits in its own band; mkField draws its label at y+FH+2,
+% so the next row must start well below the header to avoid overlapping it.
+mkLabel(tSim,'— Open-loop actuation † —',C1,y+16,340,20,11,'bold',GOLD);
+y = y-32;
 ef.eact = mkField(tSim,'Actuator strain',     -0.15, C1,y,FW,FH);
 ef.tramp= mkField(tSim,'Ramp time (s)',         1.5, C2,y,FW,FH); y=y-ROW;
 ef.thold= mkField(tSim,'Hold time (s)',         1.0, C1,y,FW,FH);
@@ -109,50 +113,63 @@ uilabel(tSim,'Text','† Open-Loop mode only', ...
 % ------------------------------------------------------------------
 %  PID GAINS tab   (Strain PID — drives loaded-side joint bars)
 % ------------------------------------------------------------------
-y = 470;
-mkLabel(tPID,'— Disturbance rejection (strain PID) —',C1,y,340,20,10.5,'bold',TEAL); y=y-26;
+% A field's own label occupies y+FH+2 .. y+FH+18, so a section header needs
+% ~50 px of clearance above the first field it introduces.
+HDR = 50;
+y = 455;
+mkLabel(tPID,'— Disturbance rejection (strain PID) —',C1,y,340,20,10.5,'bold',TEAL); y=y-HDR;
 ef.Kps  = mkField(tPID,'Kp  (proportional)',  0.6,  C1,y,FW,FH);
 ef.Kis  = mkField(tPID,'Ki  (integral)',      1.0,  C2,y,FW,FH); y=y-ROW;
 ef.Kds  = mkField(tPID,'Kd  (derivative)',    0.0,  C1,y,FW,FH);
 ef.pls  = mkField(tPID,'Prestrain limit',     0.05, C2,y,FW,FH); y=y-ROW;
 ef.tons = mkField(tPID,'Controller on (s)',    1.0, C1,y,FW,FH);
-ef.Kv   = mkField(tPID,'Kv  (axial vel damp)', 0.0, C2,y,FW,FH); y=y-ROW-6;
+ef.Kv   = mkField(tPID,'Kv  (axial vel damp)', 0.0, C2,y,FW,FH); y=y-ROW-8;
 
-mkLabel(tPID,'— Vibration damping (rotational joints) —',C1,y,340,20,10.5,'bold',GOLD); y=y-26;
-ef.Crot = mkField(tPID,'C_rot (joint damping)', 50, C1,y,FW,FH); y=y-ROW;
+mkLabel(tPID,'— Rotational-joint PID (hinge angle) —',C1,y,340,20,10.5,'bold',GOLD); y=y-HDR;
+ef.Kpr  = mkField(tPID,'Kp_rot (N·m/rad)',      0.0, C1,y,FW,FH);
+ef.Kir  = mkField(tPID,'Ki_rot (N·m/rad/s)',    0.0, C2,y,FW,FH); y=y-ROW;
+ef.Kdr  = mkField(tPID,'Kd_rot (N·m·s/rad)',     50, C1,y,FW,FH);
+ef.Mlim = mkField(tPID,'Moment limit (0=∞)',    0.0, C2,y,FW,FH); y=y-ROW;
 
-uilabel(tPID,'Text',['Rotational joint damping (C_rot) opposes each hinge''s ' ...
-    'angular rate — it settles the ring mode the axial actuators can''t reach. ' ...
-    'Strain Kp/Ki reject the steady offset. Keep Kd = Kv = 0 when C_rot > 0 ' ...
-    '(the two dampers fight otherwise). C_rot≈50 settles cleanly; ≳120 diverges.'], ...
-    'Position',[C1 y-30 340 80],'FontColor',[0.55 0.60 0.70], ...
+uilabel(tPID,'Text',['The hinge PID drives each joint angle back to its ' ...
+    'undeformed value: M = Kp·e + Ki·∫e + Kd·ė. Kd_rot alone is pure rate ' ...
+    'damping (the old C_rot) — it settles the ring mode the axial actuators ' ...
+    'can''t reach; Kd_rot≈50 settles cleanly, ≳120 diverges. Kp_rot stiffens ' ...
+    'the hinges, Ki_rot removes their steady deflection. Keep the axial ' ...
+    'Kd = Kv = 0 when Kd_rot > 0 (the dampers fight otherwise).'], ...
+    'Position',[C1 y-58 340 96],'FontColor',[0.55 0.60 0.70], ...
     'FontSize',9,'FontAngle','italic','WordWrap','on');
 
 % ---- Buttons & status (below the tab group) --------------------------------
 resetBtn = uibutton(lp,'push','Text','↺  Reset Defaults', ...
-    'Position',[10 198 LP_W-20 30], ...
+    'Position',[10 222 LP_W-20 30], ...
     'BackgroundColor',[0.22 0.30 0.42],'FontColor',WHITE, ...
     'FontSize',11,'FontWeight','bold');
 
 runBtn = uibutton(lp,'push','Text','▶  Run Simulation', ...
-    'Position',[10 158 LP_W-20 36], ...
+    'Position',[10 180 LP_W-20 36], ...
     'BackgroundColor',GREEN_BTN,'FontColor',WHITE, ...
     'FontSize',13,'FontWeight','bold');
 
 statusLbl = uilabel(lp,'Text','Ready — configure parameters and press Run.', ...
-    'Position',[10 138 LP_W-20 18], ...
+    'Position',[10 160 LP_W-20 18], ...
     'FontColor',TEAL,'FontSize',9,'HorizontalAlignment','center');
 
 % ---- Progress bar (track + fill; fill width scales 0..100%) ----------------
 PROG_W    = LP_W-20;
-progTrack = uipanel(lp,'Position',[10 120 PROG_W 14], ...
+progTrack = uipanel(lp,'Position',[10 142 PROG_W 14], ...
     'BackgroundColor',[0.07 0.09 0.12],'BorderType','none');
 progFill  = uipanel(progTrack,'Units','pixels','Position',[0 0 1 14], ...
     'BackgroundColor',GREEN_BTN,'BorderType','none');
 
 % ---- Console log (fixed height at bottom)
-mkLabel(lp,'Console Output',10,100,200,16,10,'normal',[0.65 0.68 0.75]);
-logBox = uitextarea(lp,'Position',[10 8 LP_W-20 90], ...
+% scroll(uitextarea,'bottom') scrolls the content clean out of view, so the
+% console is kept as a tail: only the newest LOG_MAX lines (as many as fit
+% without scrolling) are ever shown. See logAppend.
+LOG_H   = 118;
+LOG_MAX = max(3, floor((LOG_H - 8) / 12));
+mkLabel(lp,'Console Output',10,126,200,16,10,'normal',[0.65 0.68 0.75]);
+logBox = uitextarea(lp,'Position',[10 8 LP_W-20 LOG_H], ...
     'Editable','off','BackgroundColor',[0.07 0.09 0.12], ...
     'FontColor',[0.45 0.82 0.50],'FontSize',8.5,'FontName','Courier New');
 
@@ -160,10 +177,10 @@ logBox = uitextarea(lp,'Position',[10 8 LP_W-20 90], ...
 RP_X = LP_W + 16;
 RP_W = 1480-RP_X-8;
 rp = uipanel(fig,'Position',[RP_X 8 RP_W 836], ...
-    'BackgroundColor',DARK_BG,'BorderType','none');
+    'BackgroundColor',DARK_BG,'BorderType','none','AutoResizeChildren','off');
 
 % ---- Top strip: pick a case, open the 3-D viewer, or export an MP4 --------
-uilabel(rp,'Text','Case:','Position',[6 802 44 24], ...
+caseLbl = uilabel(rp,'Text','Case:','Position',[6 802 44 24], ...
     'FontColor',WHITE,'FontSize',11,'FontWeight','bold');
 caseDrop = uidropdown(rp,'Items',{'(run a simulation first)'}, ...
     'Position',[52 802 224 26],'BackgroundColor',FIELD_BG, ...
@@ -174,28 +191,45 @@ viewBtn = uibutton(rp,'push','Text','🧊  Open 3D Viewer', ...
 exportBtn = uibutton(rp,'push','Text','🎬  Export MP4', ...
     'Position',[492 800 165 30],'BackgroundColor',[0.55 0.30 0.55], ...
     'FontColor',WHITE,'FontSize',12,'FontWeight','bold','Enable','off');
-uilabel(rp,'Text','viewer: drag=orbit • scroll=zoom   |   MP4: renders the selected case', ...
+hintLbl = uilabel(rp,'Text','viewer: drag=orbit • scroll=zoom   |   MP4: renders the selected case', ...
     'Position',[665 802 RP_W-673 24],'FontColor',[0.60 0.64 0.72], ...
     'FontSize',9,'FontAngle','italic');
 
-ptab = uitabgroup(rp,'Position',[4 4 RP_W-8 790]);
+ptab = uitabgroup(rp,'Position',[4 4 RP_W-8 790],'AutoResizeChildren','off');
 
-dispTab = uitab(ptab,'Title','  Displacement History  ');
-actTab  = uitab(ptab,'Title','  Actuator Commands  ');
+dispTab = uitab(ptab,'Title','  Displacement History  ','AutoResizeChildren','off');
+actTab  = uitab(ptab,'Title','  Actuator Commands  ','AutoResizeChildren','off');
+rotTab  = uitab(ptab,'Title','  Joint Moments  ','AutoResizeChildren','off');
 colorTab(dispTab, DARK_BG);
 colorTab(actTab,  DARK_BG);
+colorTab(rotTab,  DARK_BG);
 
-ax_disp = uiaxes(dispTab,'Position',[20 20 RP_W-52 742], ...
+% Height must stay inside the tab's client area (tab group height minus the
+% ~30 px title strip), or the axes title is clipped off the top.
+AXH = 790 - 30 - 26;
+ax_disp = uiaxes(dispTab,'Position',[20 18 RP_W-52 AXH], ...
     'Color',[0.11 0.13 0.19],'XColor',WHITE,'YColor',WHITE, ...
     'GridColor',[0.30 0.33 0.42],'GridAlpha',0.5,'FontSize',10);
 title(ax_disp,'Press Run to see results','Color',WHITE,'FontSize',14);
 hold(ax_disp,'on'); grid(ax_disp,'on'); box(ax_disp,'on');
 
-ax_act  = uiaxes(actTab,'Position',[20 20 RP_W-52 742], ...
+ax_act  = uiaxes(actTab,'Position',[20 18 RP_W-52 AXH], ...
     'Color',[0.11 0.13 0.19],'XColor',WHITE,'YColor',WHITE, ...
     'GridColor',[0.30 0.33 0.42],'GridAlpha',0.5,'FontSize',10);
 title(ax_act,'Press Run to see results','Color',WHITE,'FontSize',14);
 hold(ax_act,'on'); grid(ax_act,'on'); box(ax_act,'on');
+
+ax_rot  = uiaxes(rotTab,'Position',[20 18 RP_W-52 AXH], ...
+    'Color',[0.11 0.13 0.19],'XColor',WHITE,'YColor',WHITE, ...
+    'GridColor',[0.30 0.33 0.42],'GridAlpha',0.5,'FontSize',10);
+title(ax_rot,'Press Run to see results','Color',WHITE,'FontSize',14);
+hold(ax_rot,'on'); grid(ax_rot,'on'); box(ax_rot,'on');
+
+% Everything above is placed in pixels, so reflow it whenever the window is
+% resized — otherwise the panels stay bottom-left anchored and the plots
+% either get clipped or leave a dead band on the right.
+fig.SizeChangedFcn = @(~,~) layoutFig();
+layoutFig();
 
 %% ---- Callbacks ------------------------------------------------------------
 lastResult = [];   % results of the most recent successful run (for 3D viewer)
@@ -207,13 +241,69 @@ viewBtn.ButtonPushedFcn  = @(~,~) onView();
 exportBtn.ButtonPushedFcn = @(~,~) onExport();
 onSimTypeChanged();   % set initial field enable states
 
+    %% ---- logAppend / logReset --------------------------------------------
+    % Console tail. Only the newest LOG_MAX lines are held in the text area,
+    % so the latest message is always on screen without asking uitextarea to
+    % scroll (scroll(...,'bottom') pushes the content out of view entirely).
+    function logAppend(lines)
+        if ~iscell(lines), lines = {lines}; end
+        v = [logBox.Value(:); lines(:)];
+        v = v(~cellfun(@isempty, v));
+        if numel(v) > LOG_MAX, v = v(end-LOG_MAX+1:end); end
+        if isempty(v), v = {''}; end   % uitextarea rejects an empty cell
+        logBox.Value = v;
+    end
+
+    function logReset(lines)
+        logBox.Value = {''};
+        logAppend(lines);
+    end
+
+    %% ---- layoutFig -------------------------------------------------------
+    % Reflow the pixel-positioned panels for the current figure size. The left
+    % column keeps its fixed width (LP_W) so the progress bar and field grid
+    % stay valid; only heights and the right column's width follow the window.
+    function layoutFig()
+        fp = fig.Position;
+        W  = max(fp(3), 900);
+        H  = max(fp(4), 520);
+
+        header.Position    = [0 H-32 W 32];
+        headerLbl.Position = [0 0 W 32];
+
+        lpH = H - 44;
+        lp.Position = [8 8 LP_W lpH];
+        simLbl.Position  = [10 lpH-32 LP_W-20 20];
+        simDrop.Position = [10 lpH-60 LP_W-20 26];
+        tg.Position      = [5 258 LP_W-10 max(120, lpH-64-258)];
+        % Buttons, status, progress bar and console stay anchored to the bottom.
+
+        rpW = max(320, W - RP_X - 8);
+        rpH = lpH;
+        rp.Position = [RP_X 8 rpW rpH];
+        caseLbl.Position   = [6   rpH-34 44 24];
+        caseDrop.Position  = [52  rpH-34 224 26];
+        viewBtn.Position   = [284 rpH-36 200 30];
+        exportBtn.Position = [492 rpH-36 165 30];
+        hintLbl.Position   = [665 rpH-34 max(10, rpW-673) 24];
+
+        ptabH = max(140, rpH - 46);
+        ptab.Position = [4 4 rpW-8 ptabH];
+        axW = max(120, rpW-52);
+        axH = max(80, ptabH - 30 - 26);
+        ax_disp.Position = [20 18 axW axH];
+        ax_act.Position  = [20 18 axW axH];
+        ax_rot.Position  = [20 18 axW axH];
+    end
+
     %% ---- onSimTypeChanged ------------------------------------------------
     function onSimTypeChanged()
         isPID = contains(simDrop.Value,'PID');
         % Open-loop fields active only in Open Loop mode.
         setEnable({ef.eact, ef.tramp, ef.thold}, ~isPID);
         % PID-gain fields active only in PID mode.
-        setEnable({ef.Kps, ef.Kis, ef.Kds, ef.pls, ef.tons, ef.Kv, ef.Crot}, isPID);
+        setEnable({ef.Kps, ef.Kis, ef.Kds, ef.pls, ef.tons, ef.Kv, ...
+                   ef.Kpr, ef.Kir, ef.Kdr, ef.Mlim}, isPID);
         % Open-Loop matches the script's pure-actuation demo (no external
         % force); PID needs a disturbance to reject, so default to 80 N.
         if isPID
@@ -250,7 +340,8 @@ onSimTypeChanged();   % set initial field enable states
         ef.Kps.Value  = 0.6;    ef.Kis.Value  = 1.0;
         ef.Kds.Value  = 0.0;    ef.pls.Value  = 0.05;
         ef.tons.Value = 1.0;    ef.Kv.Value   = 0.0;
-        ef.Crot.Value = 50;
+        ef.Kpr.Value  = 0.0;    ef.Kir.Value  = 0.0;
+        ef.Kdr.Value  = 50;     ef.Mlim.Value = 0.0;
     end
 
     %% ---- onRun -----------------------------------------------------------
@@ -261,7 +352,7 @@ onSimTypeChanged();   % set initial field enable states
         runBtn.Enable  = 'off';
         runBtn.Text    = '⏳ Running…';
         statusLbl.Text = 'Simulation running…';
-        logBox.Value   = {'Collecting parameters…'};
+        logReset({'Collecting parameters…'});
         setProgress(0,'starting');
         drawnow;
 
@@ -289,7 +380,10 @@ onSimTypeChanged();   % set initial field enable states
         p.pLim_s    = ef.pls.Value;
         p.t_on_s    = ef.tons.Value;
         p.Kv_s      = ef.Kv.Value;
-        p.C_rot     = ef.Crot.Value;
+        p.Kp_rot    = ef.Kpr.Value;
+        p.Ki_rot    = ef.Kir.Value;
+        p.Kd_rot    = ef.Kdr.Value;
+        p.M_lim_rot = ef.Mlim.Value;
 
         % Run on the main thread; @setProgress updates the bar live via the
         % solver's progressFcn. bg_hexCenterRing traps its own errors.
@@ -300,21 +394,16 @@ onSimTypeChanged();   % set initial field enable states
     %% ---- onSimDone (r = result struct returned by bg_hexCenterRing) ------
     function onSimDone(r)
         % Flush solver log to console box
-        for k = 1:numel(r.log)
-            logBox.Value = [logBox.Value; r.log(k)];
-        end
-        scroll(logBox,'bottom');
+        logAppend(r.log(:));
 
         if ~r.ok
             setProgress(0,'error');
             statusLbl.Text = 'ERROR — see console.';
-            logBox.Value   = [logBox.Value; {['ERROR: ' r.err.message]}];
+            logAppend({['ERROR: ' r.err.message]});
             for k = 1:numel(r.err.stack)
-                logBox.Value = [logBox.Value; ...
-                    {sprintf('  @ %s  line %d', r.err.stack(k).name, ...
-                                                 r.err.stack(k).line)}];
+                logAppend({sprintf('  @ %s  line %d', r.err.stack(k).name, ...
+                                                      r.err.stack(k).line)});
             end
-            scroll(logBox,'bottom');
         else
             setProgress(1,'complete');
             statusLbl.Text = 'Simulation complete.';
@@ -354,16 +443,13 @@ onSimTypeChanged();   % set initial field enable states
         if ~isempty(badFrame)
             keep = max(1, badFrame - 1);
             U = U(1:keep,:,:);
-            logBox.Value = [logBox.Value; {sprintf( ...
+            logAppend({sprintf( ...
                 ['! %s diverged at t = %.2f s — showing first %d frame(s). ' ...
                  'Try lower PID gains.'], caseDrop.Value, ...
-                (badFrame-1)*r.dt_view, keep)}];
-            scroll(logBox,'bottom');
+                (badFrame-1)*r.dt_view, keep)});
         end
         if size(U,1) < 2
-            logBox.Value = [logBox.Value; ...
-                {'! Not enough finite frames to visualise this case.'}];
-            scroll(logBox,'bottom');
+            logAppend({'! Not enough finite frames to visualise this case.'});
             return;
         end
 
@@ -375,10 +461,10 @@ onSimTypeChanged();   % set initial field enable states
         mag  = 1;
         if ~isempty(maxD) && maxD > 0, mag = max(1, 0.12*span/maxD); end
 
-        logBox.Value = [logBox.Value; {sprintf( ...
+        logAppend({sprintf( ...
             'Viewer: %s — %d frames, %d nodes, max|U|=%.4g m, magnify ×%.0f', ...
-            caseDrop.Value, size(U,1), size(U,2), maxD, mag)}];
-        scroll(logBox,'bottom');  drawnow;
+            caseDrop.Value, size(U,1), size(U,2), maxD, mag)});
+        drawnow;
 
         viz = struct();
         viz.node_coords = r.node_coords;
@@ -386,11 +472,18 @@ onSimTypeChanged();   % set initial field enable states
         viz.Uhis        = U;
         viz.bar_conn    = r.bar_conn;
         viz.joint_ids   = r.joint_ids;
+        if strcmp(r.mode,'pid') && idx == numel(r.caseNames) && isfield(r,'act_loaded')
+            viz.actuator_ids = r.act_loaded;
+            viz.actuator_cmd = r.prestrain_his;
+        elseif strcmp(r.mode,'openloop') && isfield(r,'act_ids')
+            viz.actuator_ids = r.act_ids;
+            viz.actuator_cmd = r.actRatio - 1;
+        end
         viz.dt          = r.dt_view;
         viz.skip        = max(1, round(size(U,1)/300));  % ≤~300 smooth frames
         viz.magnify     = mag;
-        viz.title       = sprintf('%s  —  %s  (magnify ×%.0f)', ...
-                                  r.simType, caseDrop.Value, mag);
+        % No magnify factor here — the viewer appends the live one to the title.
+        viz.title       = sprintf('%s  —  %s', r.simType, caseDrop.Value);
         try
             Interactive_Deformation_Viewer(viz);
         catch ME
@@ -400,8 +493,7 @@ onSimTypeChanged();   % set initial field enable states
                               ME.stack(1).name, ME.stack(1).line);
             end
             uialert(fig, msg, '3D viewer error');   % loud, can't be missed
-            logBox.Value = [logBox.Value; {['3D viewer error: ' ME.message]}];
-            scroll(logBox,'bottom');
+            logAppend({['3D viewer error: ' ME.message]});
         end
     end
 
@@ -429,9 +521,8 @@ onSimTypeChanged();   % set initial field enable states
         bad = find(~finPerFrame, 1);
         if ~isempty(bad), U = U(1:max(1,bad-1),:,:); end
         if size(U,1) < 2
-            logBox.Value = [logBox.Value; ...
-                {'! Not enough finite frames to export this case.'}];
-            scroll(logBox,'bottom');  return;
+            logAppend({'! Not enough finite frames to export this case.'});
+            return;
         end
         span = max(max(r.node_coords,[],1) - min(r.node_coords,[],1));
         maxD = max(abs(U(isfinite(U))));
@@ -443,26 +534,24 @@ onSimTypeChanged();   % set initial field enable states
         exportBtn.Enable = 'off';  exportBtn.Text = '⏳ Exporting…';
         runBtn.Enable = 'off';     viewBtn.Enable = 'off';
         statusLbl.Text = 'Rendering MP4…';
-        logBox.Value = [logBox.Value; {sprintf( ...
-            'Exporting "%s" — %d frames, magnify ×%.0f…', ...
-            caseDrop.Value, ceil(size(U,1)/skip), mag)}];
-        scroll(logBox,'bottom');  setProgress(0,'rendering MP4');  drawnow;
+        logAppend({sprintf('Exporting "%s" — %d frames, magnify ×%.0f…', ...
+            caseDrop.Value, ceil(size(U,1)/skip), mag)});
+        setProgress(0,'rendering MP4');  drawnow;
 
         try
             export_mp4(r, idx, U, mp4File, mag, skip, fps, @setProgress);
             setProgress(1,'MP4 saved');
             statusLbl.Text = 'MP4 saved.';
-            logBox.Value = [logBox.Value; {['Saved: ' mp4File]}];
+            logAppend({['Saved: ' mp4File]});
         catch ME
             setProgress(0,'export failed');
             statusLbl.Text = 'MP4 export failed — see console.';
-            logBox.Value = [logBox.Value; {['MP4 export error: ' ME.message]}];
+            logAppend({['MP4 export error: ' ME.message]});
             if ~isempty(ME.stack)
-                logBox.Value = [logBox.Value; {sprintf('  @ %s line %d', ...
-                    ME.stack(1).name, ME.stack(1).line)}];
+                logAppend({sprintf('  @ %s line %d', ...
+                    ME.stack(1).name, ME.stack(1).line)});
             end
         end
-        scroll(logBox,'bottom');
         exportBtn.Enable = 'on';  exportBtn.Text = '🎬  Export MP4';
         runBtn.Enable = 'on';     viewBtn.Enable = 'on';
         drawnow;
@@ -489,36 +578,41 @@ onSimTypeChanged();   % set initial field enable states
     %   'pid'      — passive vs. strain-PID (ring 1 + center centroid X-disp)
     %   'openloop' — center + 6 ring centroid X-disp with prescribed actuation
     function plotHexResults(r)
+        % Ring 4 is the clamped panel; it gets grey, but a light grey — the
+        % dark grey used on the white MP4 canvas vanishes on these dark axes.
         ring_clrs = [1.00 0.82 0.10;   % ring 1 — gold (loaded)
                      0.30 0.55 0.80;
                      0.30 0.55 0.80;
-                     0.25 0.25 0.25;   % ring 4 — dark (clamped)
+                     0.72 0.74 0.78;   % ring 4 — grey (clamped)
                      0.30 0.55 0.80;
                      0.30 0.55 0.80];
 
         % ---- Displacement axes ----
         cla(ax_disp); hold(ax_disp,'on'); grid(ax_disp,'on');
+        hD = gobjects(0);
         if strcmp(r.mode,'pid')
-            plot(ax_disp, r.time, r.u_ring1_pass*1e3, 'Color',[0.85 0.25 0.25], ...
+            hD(end+1) = plot(ax_disp, r.time, r.u_ring1_pass*1e3, 'Color',[0.85 0.25 0.25], ...
                 'LineWidth',2.0,'DisplayName','Ring 1 — Passive');
-            plot(ax_disp, r.time, r.u_ring_ctrl(:,1)*1e3, 'Color',[0.25 0.60 0.95], ...
+            hD(end+1) = plot(ax_disp, r.time, r.u_ring_ctrl(:,1)*1e3, 'Color',[0.25 0.60 0.95], ...
                 'LineWidth',2.0,'DisplayName','Ring 1 — Strain PID');
-            plot(ax_disp, r.time, r.u_center_pass*1e3, 'Color',[0.85 0.45 0.25], ...
+            hD(end+1) = plot(ax_disp, r.time, r.u_center_pass*1e3, 'Color',[0.85 0.45 0.25], ...
                 'LineWidth',1.3,'LineStyle','--','DisplayName','Center — Passive');
-            plot(ax_disp, r.time, r.u_center_ctrl*1e3, 'Color',[0.10 0.70 0.65], ...
+            hD(end+1) = plot(ax_disp, r.time, r.u_center_ctrl*1e3, 'Color',[0.10 0.70 0.65], ...
                 'LineWidth',1.3,'LineStyle','--','DisplayName','Center — PID');
             xline(ax_disp, r.t_ctrl_on,'--','Color',[0.80 0.80 0.80], ...
-                'LineWidth',1.2,'Label','ctrl on','LabelVerticalAlignment','bottom');
+                'LineWidth',1.2,'Label','ctrl on','LabelOrientation','horizontal', ...
+                'LabelVerticalAlignment','top','LabelHorizontalAlignment','right', ...
+                'FontSize',9);
             title(ax_disp, sprintf(['Hex Center Ring PID — F=%.0f N | ' ...
                 'Kp=%.2g Ki=%.2g Kd=%.2g'], r.F_mag, r.Kp, r.Ki, r.Kd), ...
                 'Color',WHITE,'FontSize',12);
         else
-            plot(ax_disp, r.time, r.u_center_ctrl*1e3, 'Color',[0.10 0.70 0.65], ...
+            hD(end+1) = plot(ax_disp, r.time, r.u_center_ctrl*1e3, 'Color',[0.10 0.70 0.65], ...
                 'LineWidth',1.8,'DisplayName','Center');
             for k = 1:size(r.u_ring_ctrl,2)
-                plot(ax_disp, r.time, r.u_ring_ctrl(:,k)*1e3, ...
+                hD(end+1) = plot(ax_disp, r.time, r.u_ring_ctrl(:,k)*1e3, ...
                     'Color',ring_clrs(k,:),'LineWidth',1.2, ...
-                    'DisplayName',sprintf('Ring %d',k));
+                    'DisplayName',sprintf('Ring %d',k)); %#ok<AGROW>
             end
             title(ax_disp, sprintf('Hex Center Ring — Open Loop (actuator strain %.0f%%)', ...
                 r.strain_act*100), 'Color',WHITE,'FontSize',12);
@@ -526,7 +620,10 @@ onSimTypeChanged();   % set initial field enable states
         yline(ax_disp, 0,':','Color',[0.60 0.60 0.60],'LineWidth',0.8);
         xlabel(ax_disp,'Time (s)','Color',WHITE);
         ylabel(ax_disp,'Centroid X-disp (mm)','Color',WHITE);
-        legend(ax_disp,'Location','best','TextColor',WHITE, ...
+        xlim(ax_disp,[r.time(1) r.time(end)]);
+        % Legend built from the data handles only — passing them explicitly keeps
+        % the xline/yline guides out of it (they'd show up as "data1", "data2").
+        legend(ax_disp, hD, 'Location','best','TextColor',WHITE, ...
             'Color',[0.14 0.17 0.24],'EdgeColor',[0.30 0.33 0.42]);
 
         % ---- Actuator axes ----
@@ -534,47 +631,103 @@ onSimTypeChanged();   % set initial field enable states
         if strcmp(r.mode,'pid')
             nb = size(r.prestrain_his,2);
             act_c = lines(max(nb,1));
+            hA = gobjects(1,nb);
             for b = 1:nb
-                plot(ax_act, r.time, r.prestrain_his(:,b)*100, ...
+                hA(b) = plot(ax_act, r.time, r.prestrain_his(:,b)*100, ...
                     'Color',act_c(b,:),'LineWidth',1.2, ...
                     'DisplayName',sprintf('joint %d',b));
             end
-            yline(ax_act,  r.pLim*100,'--','Color',[0.80 0.80 0.80], ...
-                'LineWidth',1.2,'Label','limit');
-            yline(ax_act, -r.pLim*100,'--','Color',[0.80 0.80 0.80],'LineWidth',1.2);
+            % Scale to the commands, not to the saturation limit: the limit is
+            % often 10× the actual command and would flatten the traces onto
+            % the zero line. Draw the limit guides only when they fit on-scale.
+            yl  = padLimit(r.prestrain_his(:)*100);
+            lim = r.pLim*100;
+            ttl = sprintf('Loaded-side actuator commands (%d joint bars)', nb);
+            if lim <= yl
+                yl = max(yl, lim*1.15);
+                yline(ax_act,  lim,'--','Color',[0.80 0.80 0.80], ...
+                    'LineWidth',1.2,'Label','limit','FontSize',9, ...
+                    'LabelHorizontalAlignment','left');
+                yline(ax_act, -lim,'--','Color',[0.80 0.80 0.80],'LineWidth',1.2);
+            else
+                ttl = sprintf('%s — ±%.2g%% limit off-scale', ttl, lim);
+            end
+            ylim(ax_act, [-yl yl]);
+            yline(ax_act, 0,':','Color',[0.60 0.60 0.60],'LineWidth',0.8);
             ylabel(ax_act,'Prestrain command (%)','Color',WHITE);
-            title(ax_act, sprintf('Loaded-side actuator commands (%d joint bars)', nb), ...
-                'Color',WHITE,'FontSize',12);
+            title(ax_act, ttl, 'Color',WHITE,'FontSize',12);
         else
             nb = size(r.actRatio,2);
             act_c = lines(nb);
+            hA = gobjects(1,nb);
             for b = 1:nb
-                plot(ax_act, r.time, r.actRatio(:,b), ...
+                hA(b) = plot(ax_act, r.time, r.actRatio(:,b), ...
                     'Color',act_c(b,:),'LineWidth',1.0, ...
                     'DisplayName',sprintf('joint %d',b));
             end
             yline(ax_act, 1,'--','Color',[0.80 0.80 0.80], ...
-                'LineWidth',1.2,'Label','natural');
+                'LineWidth',1.2,'Label','natural','FontSize',9, ...
+                'LabelHorizontalAlignment','left');
+            yl = padLimit(r.actRatio(:) - 1);
+            ylim(ax_act, 1 + [-yl yl]);
             ylabel(ax_act,'L_0(t)/L_{0,nat}','Color',WHITE);
             title(ax_act, sprintf('Actuator rest-length ratios (%d joint bars)', nb), ...
                 'Color',WHITE,'FontSize',12);
         end
         xlabel(ax_act,'Time (s)','Color',WHITE);
-        legend(ax_act,'Location','best','TextColor',WHITE, ...
+        xlim(ax_act,[r.time(1) r.time(end)]);
+        legend(ax_act, hA, 'Location','best','TextColor',WHITE, ...
             'Color',[0.14 0.17 0.24],'EdgeColor',[0.30 0.33 0.42],'NumColumns',2);
+
+        % ---- Rotational-joint moment axes ----
+        cla(ax_rot); hold(ax_rot,'on'); grid(ax_rot,'on');
+        if strcmp(r.mode,'pid') && isfield(r,'rot_moment_his')
+            M  = r.rot_moment_his;
+            ns = size(M,2);
+            % 24 hinges would make an unreadable legend; show the envelope and
+            % the single hardest-working hinge instead.
+            [~, iw] = max(max(abs(M),[],1));
+            hR = gobjects(1,3);
+            hR(1) = plot(ax_rot, r.time, max(M,[],2), 'Color',[0.30 0.55 0.80], ...
+                'LineWidth',1.0,'DisplayName','max over hinges');
+            hR(2) = plot(ax_rot, r.time, min(M,[],2), 'Color',[0.30 0.55 0.80], ...
+                'LineWidth',1.0,'DisplayName','min over hinges');
+            hR(3) = plot(ax_rot, r.time, M(:,iw), 'Color',[1.00 0.82 0.10], ...
+                'LineWidth',1.8,'DisplayName',sprintf('hinge %d (peak)',iw));
+            yl = padLimit(M(:));
+            ylim(ax_rot, [-yl yl]);
+            yline(ax_rot, 0,':','Color',[0.60 0.60 0.60],'LineWidth',0.8);
+            xline(ax_rot, r.t_ctrl_on,'--','Color',[0.80 0.80 0.80], ...
+                'LineWidth',1.2,'Label','ctrl on','LabelOrientation','horizontal', ...
+                'LabelVerticalAlignment','top','LabelHorizontalAlignment','right', ...
+                'FontSize',9);
+            ylabel(ax_rot,'Applied hinge moment (N·m)','Color',WHITE);
+            title(ax_rot, sprintf(['Rotational-joint PID moments (%d hinges) — ' ...
+                'Kp=%.3g Ki=%.3g Kd=%.3g'], ns, r.Kp_rot, r.Ki_rot, r.Kd_rot), ...
+                'Color',WHITE,'FontSize',12);
+            legend(ax_rot, hR, 'Location','best','TextColor',WHITE, ...
+                'Color',[0.14 0.17 0.24],'EdgeColor',[0.30 0.33 0.42]);
+        else
+            title(ax_rot,'Rotational-joint PID runs in PID Control mode only', ...
+                'Color',WHITE,'FontSize',12);
+        end
+        xlabel(ax_rot,'Time (s)','Color',WHITE);
+        xlim(ax_rot,[r.time(1) r.time(end)]);
 
         % ---- Console summary ----
         if strcmp(r.mode,'pid')
-            logBox.Value = [logBox.Value; ...
-                {sprintf('Ring1 passive SS : %+.3f mm', r.u_ring1_pass(end)*1e3)}; ...
-                {sprintf('Ring1 PID SS     : %+.3f mm', r.u_ring_ctrl(end,1)*1e3)}];
+            logAppend({ ...
+                sprintf('Ring1 passive SS : %+.3f mm', r.u_ring1_pass(end)*1e3); ...
+                sprintf('Ring1 PID SS     : %+.3f mm', r.u_ring_ctrl(end,1)*1e3)});
             if abs(r.u_ring1_pass(end)) > 1e-9
-                logBox.Value = [logBox.Value; ...
-                    {sprintf('Reduction        : %.1f %%', ...
-                    100*(1-abs(r.u_ring_ctrl(end,1))/abs(r.u_ring1_pass(end))))}];
+                logAppend({sprintf('Reduction        : %.1f %%', ...
+                    100*(1-abs(r.u_ring_ctrl(end,1))/abs(r.u_ring1_pass(end))))});
+            end
+            if isfield(r,'rot_error_his')
+                logAppend({sprintf('Hinge |e| final  : %.3g rad  (peak M %.3g N·m)', ...
+                    max(abs(r.rot_error_his(end,:))), max(abs(r.rot_moment_his(:))))});
             end
         end
-        scroll(logBox,'bottom');
     end
 
 end  % Hex_Ring_PID_GUI
@@ -730,15 +883,20 @@ function r = bg_hexCenterRing(p, progCb)
             caa2.alpha = p.alpha_d;  caa2.beta = p.beta_d;
             caa2.rotSprTargetAngle = [];
             caa2.control = ctrl;
-            % Active rotational-joint damping (settles the ring's swing mode).
+            % Full PID on the rotational joints (settles the ring's swing mode
+            % and holds the hinge angles). Kd_rot alone == the old rotDamping.
             % sign=-1 matches the 3-node spring's moment convention (see the
-            % rotDamping property doc). Passive case gets none, for contrast.
-            if isfield(p,'C_rot') && p.C_rot > 0
-                caa2.rotDamping = struct('C', p.C_rot, 't_on', p.t_on_s, 'sign', -1);
+            % rotControl property doc). Passive case gets none, for contrast.
+            if any([p.Kp_rot, p.Ki_rot, p.Kd_rot] ~= 0)
+                if p.M_lim_rot > 0, mlim = p.M_lim_rot; else, mlim = Inf; end
+                caa2.rotControl = struct('Kp', p.Kp_rot, 'Ki', p.Ki_rot, ...
+                    'Kd', p.Kd_rot, 't_on', p.t_on_s, 'sign', -1, ...
+                    'moment_limit', mlim);
             end
-            caa2.progressFcn = mkProg(0.50, 0.50, 'strain PID + rot-damping ring');
-            r.log{end+1} = sprintf('[2/2] Controlled ring (%d loaded-side joints, C_rot=%.0f)…', ...
-                numel(act_loaded), p.C_rot);
+            caa2.progressFcn = mkProg(0.50, 0.50, 'strain PID + joint PID ring');
+            r.log{end+1} = sprintf(['[2/2] Controlled ring (%d joints; hinge PID ' ...
+                'Kp=%.3g Ki=%.3g Kd=%.3g)…'], numel(act_loaded), ...
+                p.Kp_rot, p.Ki_rot, p.Kd_rot);
             [Uctrl, ctrlLog] = caa2.Solve();
             r.log{end+1} = '  Done.';
 
@@ -748,9 +906,12 @@ function r = bg_hexCenterRing(p, progCb)
             if isfield(ctrlLog,'rot_dtheta_his')
                 r.rot_dtheta_his = ctrlLog.rot_dtheta_his;
                 r.rot_moment_his = ctrlLog.rot_moment_his;
+                r.rot_error_his  = ctrlLog.rot_error_his;
             end
-            r.C_rot         = p.C_rot;
-            r.caseNames     = {'Passive','Controlled (PID + rot-damp)'};
+            r.Kp_rot        = p.Kp_rot;
+            r.Ki_rot        = p.Ki_rot;
+            r.Kd_rot        = p.Kd_rot;
+            r.caseNames     = {'Passive','Controlled (strain + hinge PID)'};
             r.caseUhis      = {Upass, Uctrl};
         end
 
@@ -779,6 +940,7 @@ function r = bg_hexCenterRing(p, progCb)
         r.hex_nodes   = m.hex_nodes;
         r.bar_conn    = m.bar_conn;
         r.joint_ids   = find(m.is_joint);
+        r.act_ids     = m.act_ids;
         r.dt_view     = p.dt;
 
         r.ok = true;
@@ -940,6 +1102,22 @@ function export_mp4(r, idx, U, mp4File, mag, skip, fps, progCb)
 
     Usub    = U(1:skip:end, :, :);
     nFrames = size(Usub,1);
+    frameIds = 1:skip:size(U,1);
+
+    hasAct = false;
+    if strcmp(r.mode,'pid') && idx == numel(r.caseNames) && isfield(r,'act_loaded')
+        actIds = r.act_loaded(:);
+        cmdSub = r.prestrain_his(frameIds,:);
+        hasAct = true;
+    elseif strcmp(r.mode,'openloop') && isfield(r,'act_ids')
+        actIds = r.act_ids(:);
+        cmdSub = r.actRatio(frameIds,:) - 1;
+        hasAct = true;
+    end
+    if hasAct
+        cmdScale = max(abs(cmdSub(:)));
+        if cmdScale < eps, cmdScale = 1; end
+    end
 
     % Panel colours: center=teal, ring 1=gold (loaded), ring 4=dark (clamped).
     hexFace = repmat([0.30 0.55 0.80], nHex, 1);
@@ -984,7 +1162,41 @@ function export_mp4(r, idx, U, mp4File, mag, skip, fps, progCb)
             n1 = bc(jids(b),1);  n2 = bc(jids(b),2);
             p1 = deform(n1,[1 3]);  p2 = deform(n2,[1 3]);
             plot(axMP, [p1(1) p2(1)], [p1(2) p2(2)], '-', ...
-                'Color',[0.90 0.30 0.20], 'LineWidth',3.0);
+                'Color',[0.55 0.55 0.55], 'LineWidth',2.2);
+        end
+
+        % Actuated hinges / joint bars and their signed axial actuation.
+        if hasAct
+            maxArrow = 0.07 * span;
+            for a = 1:numel(actIds)
+                n1 = bc(actIds(a),1);  n2 = bc(actIds(a),2);
+                p1 = deform(n1,[1 3]);  p2 = deform(n2,[1 3]);
+                axisVec = p2 - p1;
+                L = norm(axisVec);
+                if L < eps
+                    dir = [1 0];
+                else
+                    dir = axisVec / L;
+                end
+                c = cmdSub(fi,a);
+                clr = [1.00 0.20 0.10];
+                if c < -eps
+                    clr = [0.95 0.00 0.80];       % contraction / tension
+                    v1 =  dir;  v2 = -dir;
+                elseif c > eps
+                    clr = [0.00 0.45 1.00];       % extension / compression
+                    v1 = -dir;  v2 =  dir;
+                else
+                    v1 = [0 0];  v2 = [0 0];
+                end
+                qLen = maxArrow * min(1, abs(c)/cmdScale);
+                plot(axMP, [p1(1) p2(1)], [p1(2) p2(2)], '-', ...
+                    'Color',clr, 'LineWidth',3.8);
+                quiver(axMP, p1(1), p1(2), qLen*v1(1), qLen*v1(2), 0, ...
+                    'Color',clr, 'LineWidth',1.2, 'MaxHeadSize',0.7);
+                quiver(axMP, p2(1), p2(2), qLen*v2(1), qLen*v2(2), 0, ...
+                    'Color',clr, 'LineWidth',1.2, 'MaxHeadSize',0.7);
+            end
         end
 
         t = (fi-1)*skip*r.dt_view;
@@ -1019,9 +1231,17 @@ function ef = mkField(parent, label, val, x, y, w, h)
         'BackgroundColor',FIELD_BG,'FontColor',[1 1 1],'FontSize',11);
 end
 
-function mkLabel(parent, txt, x, y, w, h, sz, wt, clr)
-    uilabel(parent,'Text',txt,'Position',[x y w h], ...
+function h = mkLabel(parent, txt, x, y, w, hgt, sz, wt, clr)
+    h = uilabel(parent,'Text',txt,'Position',[x y w hgt], ...
         'FontSize',sz,'FontWeight',wt,'FontColor',clr);
+end
+
+function yl = padLimit(v)
+%PADLIMIT  Symmetric half-range that comfortably contains the finite data in v.
+    v = v(isfinite(v));
+    if isempty(v), yl = 1; return; end
+    yl = max(abs(v)) * 1.30;
+    if yl < 1e-9, yl = 1e-9; end
 end
 
 function colorTab(tab, clr)
