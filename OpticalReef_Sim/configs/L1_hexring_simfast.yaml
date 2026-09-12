@@ -1,0 +1,30 @@
+# L1 -- 7-module hex ring, mirrored on Hex_Ring_Sim/Build_Hex_Ring_Model.m.
+# This is the Sim-FAST regression case (docs/06_VERIFICATION.md Sec 2).
+# Properties are deliberately the MATLAB ones so the comparison is meaningful.
+meta: {name: L1_hexring_simfast, level: L1,
+       notes: "Regression vs. Hex_Ring_Sim MATLAB: f1..f10 within 2%, impulse response < 5% nRMS"}
+geometry:
+  aperture_diameter: 3.0
+  module_pitch: 0.866            # R = 0.50 m circumradius -> flat-to-flat
+  central_obscuration: 0.0
+  surfaces:
+    initial: {kind: flat}
+    target:  {kind: flat}
+module: {fidelity: rigid, mass: 60.0, inertia_model: hex_plate, thickness: 0.02}
+interface:
+  joint_type: bushing
+  k: [5.0e4, 5.0e4, 5.0e4, 1.0e3, 1.0e3, 1.0e3]   # soft joints, E_joint=5e5 analogue
+  c: [5.0e2, 5.0e2, 5.0e2, 1.0e1, 1.0e1, 1.0e1]
+actuation:
+  topology: truss_1dof_per_edge
+  k: 1.0e7
+  c: 1.0e4
+  realization: ext_force_pair
+  limits: {stroke: 0.05, rate: 0.01, force: 500.0}
+  dynamics: {enabled: true, fn: 1.0, zeta: 0.7}
+sensing: {suite: oracle}
+control: {law: pid_decentralized, rate_hz: 10.0,
+          gains: {kp: 3.0, ki: 80.0, kd: 0.05}}     # the MATLAB demo gains
+maneuver: {profile: step, duration: 1.0, input_shaping: none}
+disturbance: {cases: [none]}
+solver: {engine: mbdyn, dt: 0.01, t_end: 10.0, output_dt: 0.05, rho: 0.99}

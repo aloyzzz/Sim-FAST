@@ -1,0 +1,25 @@
+[project]
+name = "opticalreef"
+version = "0.1.0"
+description = "Active shape reconfiguration simulator for the Optical Reef 1000 m modular in-space telescope (MBDyn + Project Chrono)"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=1.26", "scipy>=1.11", "pyyaml>=6.0", "jsonschema>=4.20",
+  "h5py>=3.10", "matplotlib>=3.8", "jinja2>=3.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-cov", "ruff"]
+# MBDyn is an external binary (see WP-00); PyChrono installs via conda-forge:
+#   conda install -c projectchrono pychrono
+# and requires the modal + pardisomkl submodules.
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100

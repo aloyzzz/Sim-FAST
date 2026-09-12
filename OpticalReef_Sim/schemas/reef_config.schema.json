@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://serc.usc.edu/opticalreef/reef_config.schema.json",
+  "title": "Optical Reef run configuration",
+  "description": "NORMATIVE. All quantities SI, angles in radians. Keys ending in _deg or _mm are rejected.",
+  "type": "object",
+  "required": ["meta", "geometry", "module", "interface", "actuation", "control", "maneuver", "solver"],
+  "additionalProperties": false,
+  "$defs": {
+    "surface": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": {"enum": ["paraboloid", "sphere", "flat", "offaxis_paraboloid", "conic"]},
+        "f": {"type": "number", "exclusiveMinimum": 0},
+        "R": {"type": "number"},
+        "K": {"type": "number"},
+        "d": {"type": "number"}
+      }
+    },
+    "vec6": {"type": "array", "items": {"type": "number"}, "minItems": 6, "maxItems": 6}
+  },
+  "properties": {
+    "meta": {
+      "type": "object",
+      "required": ["name", "level"],
+      "properties": {
+        "name": {"type": "string"},
+        "level": {"enum": ["L0", "L1", "L2", "L3"]},
+        "notes": {"type": "string"}
+      }
+    },
+    "geometry": {
+      "type": "object",
+      "required": ["aperture_diameter", "module_pitch", "surfaces"],
+      "properties": {
+        "aperture_diameter": {"type": "number", "exclusiveMinimum": 0},
+        "module_pitch": {"type": "number", "exclusiveMinimum": 0},
+        "central_obscuration": {"type": "number", "minimum": 0, "default": 0},
+        "surfaces": {
+          "type": "object",
+          "required": ["initial", "target"],
+          "properties": {
+            "initial": {"$ref": "#/$defs/surface"},
+            "target": {"$ref": "#/$defs/surface"}
+          }
+        }
+      }
+    },
+    "module": {
+      "type": "object",
+      "required": ["fidelity", "mass"],
+      "properties": {
+        "fidelity": {"enum": ["rigid", "flexible", "reduced"]},
+        "mass": {"type": "number", "exclusiveMinimum": 0},
+        "thickness": {"type": "number", "exclusiveMinimum": 0},
+        "inertia_model": {"enum": ["hex_plate", "explicit"]},
+        "n_fix": {"type": "integer", "minimum": 0,
+                  "description": "Craig-Bampton fixed-interface modes; reduced fidelity only"}
+      }
+    },
+    "interface": {
+      "type": "object",
+      "required": ["joint_type", "k"],
+      "properties": {
+        "joint_type": {"enum": ["bushing", "revolute_compliant", "rigid_weld"]},
+        "k": {"$ref": "#/$defs/vec6"},
+        "c": {"$ref": "#/$defs/vec6"},
+        "c_ratio": {"type": "number", "minimum": 0,
+                    "description": "damping as a fraction of critical; alternative to explicit c"}
+      }
+    },
+    "actuation": {
+      "type": "object",
+      "required": ["topology", "limits"],
+      "properties": {
+        "topology": {"enum": ["joint_only", "truss_1dof_per_edge", "truss_3dof_per_edge",
+                              "hybrid", "intra_module", "intra_plus_inter"]},
+        "k": {"type": "number", "exclusiveMinimum": 0},
+        "c": {"type": "number", "minimum": 0},
+        "realization": {"enum": ["ext_force_pair", "rod_prestrain"], "default": "ext_force_pair"},
+        "limits": {
+          "type": "object",
+          "required": ["stroke", "rate", "force"],
+          "properties": {
+            "stroke": {"type": "number", "exclusiveMinimum": 0},
+            "rate": {"type": "number", "exclusiveMinimum": 0},
+            "force": {"type": "number", "exclusiveMinimum": 0},
+            "deadband": {"type": "number", "minimum": 0},
+            "resolution": {"type": "number", "minimum": 0},
+            "noise_std": {"type": "number", "minimum": 0}
+          }
+        },
+        "dynamics": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean", "default": true},
+            "fn": {"type": "number", "exclusiveMinimum": 0, "default": 1.0},
+            "zeta": {"type": "number", "exclusiveMinimum": 0, "default": 0.7}
+          }
+        }
+      }
+    },
+    "sensing": {
+      "type": "object",
+      "properties": {
+        "suite": {"enum": ["oracle", "edge_only", "edge_plus_metrology"], "default": "oracle"},
+        "rate_hz": {"type": "number", "exclusiveMinimum": 0},
+        "noise_std": {"type": "number", "minimum": 0},
+        "latency_s": {"type": "number", "minimum": 0}
+      }
+    },
+    "control": {
+      "type": "object",
+      "required": ["law", "rate_hz"],
+      "properties": {
+        "law": {"enum": ["open_loop", "passive_damped", "pid_decentralized", "pid_shape",
+                         "lqr_modal", "lqr_modal_filtered", "mpc_rate_limited"]},
+        "rate_hz": {"type": "number", "exclusiveMinimum": 0},
+        "gains": {"type": "object"},
+        "n_modes": {"type": "integer", "minimum": 1},
+        "horizon": {"type": "integer", "minimum": 1},
+        "allocation_lambda": {"type": "number", "minimum": 0,
+                              "description": "Tikhonov damping for J-pseudoinverse; 0 is almost always wrong at scale"}
+      }
+    },
+    "maneuver": {
+      "type": "object",
+      "required": ["profile", "duration"],
+      "properties": {
+        "profile": {"enum": ["min_jerk", "trapezoidal", "bang_coast_bang", "step"]},
+        "duration": {"type": "number", "exclusiveMinimum": 0},
+        "duration_in_periods": {"type": "number", "exclusiveMinimum": 0,
+                                "description": "alternative to duration; multiplied by 1/f_1"},
+        "input_shaping": {"enum": ["none", "ZV", "ZVD", "EI"], "default": "none"}
+      }
+    },
+    "disturbance": {
+      "type": "object",
+      "properties": {
+        "cases": {"type": "array",
+                  "items": {"enum": ["none", "srp", "gravity_gradient", "thermal_snap",
+                                     "slew", "isam_reaction"]}},
+        "seed": {"type": "integer"}
+      }
+    },
+    "solver": {
+      "type": "object",
+      "required": ["engine", "dt", "t_end"],
+      "properties": {
+        "engine": {"enum": ["mbdyn", "chrono"]},
+        "dt": {"type": "number", "exclusiveMinimum": 0},
+        "t_end": {"type": "number", "exclusiveMinimum": 0},
+        "output_dt": {"type": "number", "exclusiveMinimum": 0},
+        "rho": {"type": "number", "minimum": 0, "maximum": 1,
+                "description": "MBDyn asymptotic spectral radius. REQUIRED for mbdyn. Use >=0.95 for any run feeding a modal-energy or energy-balance metric, else the integrator damps the very modes being measured."},
+        "hht_alpha": {"type": "number", "minimum": -0.333, "maximum": 0,
+                      "description": "Chrono HHT alpha. Use >=-0.05 for modal/energy runs."},
+        "tolerance": {"type": "number", "exclusiveMinimum": 0},
+        "max_iterations": {"type": "integer", "minimum": 1}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"engine": {"const": "mbdyn"}}, "required": ["engine"]},
+          "then": {"required": ["rho"]}
+        }
+      ]
+    }
+  }
+}

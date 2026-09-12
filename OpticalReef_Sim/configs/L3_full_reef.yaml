@@ -1,0 +1,28 @@
+# L3 -- full 1000 m Optical Reef (~9000 modules). HEADLINE CASE.
+# DO NOT RUN until the Craig-Bampton reduction gate in docs/06 Sec 4 passes at L2.
+meta: {name: L3_full_reef, level: L3,
+       notes: "Blocked on WP-09 reduction gate. Rim sag change f/1->f/2 is ~31.25 m."}
+geometry:
+  aperture_diameter: 1000.0
+  module_pitch: 10.0
+  central_obscuration: 0.0
+  surfaces:
+    initial: {kind: paraboloid, f: 1000.0}
+    target:  {kind: paraboloid, f: 2000.0}
+module: {fidelity: reduced, mass: 250.0, inertia_model: hex_plate, thickness: 0.05, n_fix: 6}
+interface:
+  joint_type: bushing
+  k: [1.0e6, 1.0e6, 1.0e6, 1.0e5, 1.0e5, 1.0e5]
+  c_ratio: 0.02
+actuation:
+  topology: truss_3dof_per_edge
+  k: 1.0e7
+  c: 1.0e4
+  limits: {stroke: 2.0, rate: 0.01, force: 500.0}   # NOTE: feasibility check will
+  dynamics: {enabled: true, fn: 1.0, zeta: 0.7}     # likely FAIL here -- 31 m of rim
+sensing: {suite: edge_plus_metrology}               # travel needs a staged maneuver or
+control: {law: mpc_rate_limited, rate_hz: 0.5,      # a larger stroke. That is a RESULT.
+          n_modes: 50, horizon: 20, allocation_lambda: 1.0e-2}
+maneuver: {profile: min_jerk, duration_in_periods: 5.0, input_shaping: ZVD}
+disturbance: {cases: [none]}
+solver: {engine: chrono, dt: 0.1, t_end: 20000.0, output_dt: 2.0, hht_alpha: -0.05}
